@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "uri_libvirt": "qemu:///system",
+  "raiz_recibos": "/var/lib/laboratorio-libvirt/recibos",
+  "raiz_resultados": "/var/lib/laboratorio-libvirt/resultados",
+  "idioma_predeterminado": "es",
+  "directorio_idiomas": "/usr/share/laboratorio-libvirt/i18n",
+  "cuotas_resultados": {
+    "maximo_artefactos": 5000,
+    "maximo_bytes": 536870912,
+    "maximo_bytes_manifiesto": 2097152
+  },
+  "maximo_reservas_activas": 4,
+  "api": {
+    "escucha": "127.0.0.1:8787",
+    "fichero_token": "/var/lib/laboratorio-libvirt/credenciales/token-api"
+  },
+  "plantillas": [
+    {
+      "id": "windows-analisis",
+      "sistema": "windows",
+      "politica_red": "aislada",
+      "capacidades": [
+        "analisis-windows",
+        "escritorio-interactivo"
+      ],
+      "canal_acceso": {
+        "protocolo": "ssh",
+        "puerto": 22
+      },
+      "dominio": "windows-analisis-base",
+      "uuid_esperado": "00000000-0000-0000-0000-000000000000",
+      "destino_disco": "sda",
+      "pool_plantilla": "plantillas",
+      "volumen_plantilla": "windows-analisis-base.qcow2",
+      "pool_instancias": "laboratorio-instancias",
+      "red": "laboratorio-aislado"
+    },
+    {
+      "id": "linux-pruebas-sin-red",
+      "sistema": "linux",
+      "politica_red": "sin_red",
+      "capacidades": [
+        "pruebas-linux"
+      ],
+      "dominio": "linux-pruebas-base",
+      "uuid_esperado": "00000000-0000-0000-0000-000000000000",
+      "destino_disco": "vda",
+      "pool_plantilla": "plantillas",
+      "volumen_plantilla": "linux-pruebas-base.qcow2",
+      "pool_instancias": "laboratorio-instancias"
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "nombre_producto": "Laboratorio Libvirt",
+  "ayuda_general": "Laboratorio Libvirt crea máquinas virtuales efímeras desde plantillas registradas.\n\nUSO:\n  laboratorio-libvirt [--idioma es] --configuracion <ruta> <orden>\n  laboratorio-libvirt [--idioma es] --configuracion <ruta> servir-api\n  laboratorio-libvirt --ayuda\n\nÓRDENES DE CONSULTA:\n  plantillas\n  reservas\n  inspeccionar <id-plantilla>\n  estado <id-ejecucion>\n  acceso <id-ejecucion>\n\nÓRDENES DE CAMBIO:\n  preparar <id-plantilla> <id-ejecucion> --confirmar <id-ejecucion>\n  iniciar <id-ejecucion> --confirmar <id-ejecucion>\n  detener <id-ejecucion> --confirmar <id-ejecucion>\n  reconciliar <id-ejecucion> --confirmar <id-ejecucion>\n  proteger-resultados <id-ejecucion> --confirmar <id-ejecucion>\n  fallar <id-ejecucion> <motivo> --confirmar <id-ejecucion>\n  descartar <id-ejecucion> --confirmar <id-ejecucion>\n  descartar-fallida <id-ejecucion> --aceptar-perdida-resultados --confirmar <id-ejecucion>\n\nMOTIVOS DE FALLO:\n  infraestructura | carga_trabajo | cancelada | resultados_irrecuperables\n\nSEGURIDAD:\n  Las órdenes de cambio exigen repetir el identificador exacto. La aplicación no acepta nombres de dominios, rutas de volúmenes, XML ni órdenes del sistema desde la CLI o la API.",
+  "error_prefijo": "error",
+  "error_no_autorizado": "autenticación no válida",
+  "error_solicitud_no_valida": "solicitud no válida",
+  "error_interno": "no se pudo completar la operación",
+  "api_iniciada": "API iniciada en la interfaz local configurada"
+}

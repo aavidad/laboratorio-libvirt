@@ -1,0 +1,35 @@
+# Copyright (C) 2026 Alberto Avidad
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+[Unit]
+Description=API local de Laboratorio Libvirt
+After=libvirtd.service
+Requires=libvirtd.service
+
+[Service]
+Type=simple
+User=laboratorio-libvirt
+Group=laboratorio-libvirt
+SupplementaryGroups=libvirt
+UMask=0077
+ExecStart=/usr/bin/laboratorio-libvirt --configuracion /etc/laboratorio-libvirt/configuracion.json servir-api
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=45s
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectControlGroups=yes
+ProtectHome=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/laboratorio-libvirt
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictRealtime=yes
+
+[Install]
+WantedBy=multi-user.target

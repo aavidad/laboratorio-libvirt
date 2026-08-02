@@ -1,0 +1,7 @@
+# Copyright (C) 2026 Alberto Avidad
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+d /var/lib/laboratorio-libvirt 0700 laboratorio-libvirt laboratorio-libvirt -
+d /var/lib/laboratorio-libvirt/recibos 0700 laboratorio-libvirt laboratorio-libvirt -
+d /var/lib/laboratorio-libvirt/resultados 0700 laboratorio-libvirt laboratorio-libvirt -
+d /var/lib/laboratorio-libvirt/credenciales 0700 laboratorio-libvirt laboratorio-libvirt -

@@ -1,0 +1,586 @@
+# Copyright (C) 2026 Alberto Avidad
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+openapi: 3.1.0
+info:
+  title: API de Laboratorio Libvirt
+  version: 1.0.0
+  license:
+    name: GPL-3.0-or-later
+    identifier: GPL-3.0-or-later
+  description: >-
+    Contrato tipado para administrar reservas efímeras sin exponer recursos
+    internos de libvirt.
+servers:
+  - url: http://127.0.0.1:{puerto}
+    description: Escucha local integrada
+    variables:
+      puerto:
+        default: "8787"
+security:
+  - tokenPortador: []
+paths:
+  /api/v1/salud:
+    get:
+      operationId: consultarSalud
+      summary: Comprueba la disponibilidad autenticada
+      responses:
+        "200":
+          description: Servicio disponible
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Salud"
+        "401":
+          $ref: "#/components/responses/NoAutorizado"
+  /api/v1/plantillas:
+    get:
+      operationId: listarPlantillas
+      summary: Lista el catálogo público de plantillas
+      responses:
+        "200":
+          description: Plantillas registradas
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RespuestaPlantillas"
+        "401":
+          $ref: "#/components/responses/NoAutorizado"
+  /api/v1/plantillas/{id}/diagnostico:
+    get:
+      operationId: inspeccionarPlantilla
+      summary: Verifica las precondiciones de una plantilla
+      parameters:
+        - $ref: "#/components/parameters/IdPlantilla"
+      responses:
+        "200":
+          description: Diagnóstico de la plantilla
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RespuestaDiagnostico"
+        "400":
+          $ref: "#/components/responses/SolicitudNoValida"
+        "401":
+          $ref: "#/components/responses/NoAutorizado"
+        "409":
+          $ref: "#/components/responses/OperacionRechazada"
+  /api/v1/reservas:
+    get:
+      operationId: listarReservas
+      summary: Lista los recibos persistidos
+      responses:
+        "200":
+          description: Reservas ordenadas por identificador
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RespuestaReservas"
+        "401":
+          $ref: "#/components/responses/NoAutorizado"
+    post:
+      operationId: prepararReserva
+      summary: Prepara una instancia efímera
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SolicitudPreparar"
+      responses:
+        "201":
+          description: Reserva preparada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RespuestaRecibo"
+        "400":
+          $ref: "#/components/responses/SolicitudNoValida"
+        "401":
+          $ref: "#/components/responses/NoAutorizado"
+        "409":
+          $ref: "#/components/responses/OperacionRechazada"
+  /api/v1/reservas/{id}:
+    get:
+      operationId: consultarReserva
+      summary: Obtiene un recibo persistido
+      parameters:
+        - $ref: "#/components/parameters/IdEjecucion"
+      responses:
+        "200":
+          description: Recibo de la reserva
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RespuestaRecibo"
+        "400":
+          $ref: "#/components/responses/SolicitudNoValida"
+        "401":
+          $ref: "#/components/responses/NoAutorizado"
+        "409":
+          $ref: "#/components/responses/OperacionRechazada"
+  /api/v1/reservas/{id}/acceso:
+    get:
+      operationId: consultarAcceso
+      summary: Obtiene el punto de acceso sin credenciales
+      parameters:
+        - $ref: "#/components/parameters/IdEjecucion"
+      responses:
+        "200":
+          description: Punto de acceso observado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RespuestaAcceso"
+        "400":
+          $ref: "#/components/responses/SolicitudNoValida"
+        "401":
+          $ref: "#/components/responses/NoAutorizado"
+        "409":
+          $ref: "#/components/responses/OperacionRechazada"
+  /api/v1/reservas/{id}/iniciar:
+    post:
+      operationId: iniciarReserva
+      summary: Inicia la instancia apagada
+      parameters:
+        - $ref: "#/components/parameters/IdEjecucion"
+      requestBody:
+        $ref: "#/components/requestBodies/Confirmacion"
+      responses:
+        "200":
+          $ref: "#/components/responses/ReciboCorrecto"
+        "400":
+          $ref: "#/components/responses/SolicitudNoValida"
+        "401":
+          $ref: "#/components/responses/NoAutorizado"
+        "409":
+          $ref: "#/components/responses/OperacionRechazada"
+  /api/v1/reservas/{id}/detener:
+    post:
+      operationId: detenerReserva
+      summary: Solicita el apagado cooperativo
+      parameters:
+        - $ref: "#/components/parameters/IdEjecucion"
+      requestBody:
+        $ref: "#/components/requestBodies/Confirmacion"
+      responses:
+        "200":
+          $ref: "#/components/responses/ReciboCorrecto"
+        "400":
+          $ref: "#/components/responses/SolicitudNoValida"
+        "401":
+          $ref: "#/components/responses/NoAutorizado"
+        "409":
+          $ref: "#/components/responses/OperacionRechazada"
+  /api/v1/reservas/{id}/reconciliar:
+    post:
+      operationId: reconciliarReserva
+      summary: Repara una interrupción inequívoca
+      parameters:
+        - $ref: "#/components/parameters/IdEjecucion"
+      requestBody:
+        $ref: "#/components/requestBodies/Confirmacion"
+      responses:
+        "200":
+          $ref: "#/components/responses/ReciboCorrecto"
+        "400":
+          $ref: "#/components/responses/SolicitudNoValida"
+        "401":
+          $ref: "#/components/responses/NoAutorizado"
+        "409":
+          $ref: "#/components/responses/OperacionRechazada"
+  /api/v1/reservas/{id}/proteger-resultados:
+    post:
+      operationId: protegerResultados
+      summary: Verifica y sella los resultados copiados
+      parameters:
+        - $ref: "#/components/parameters/IdEjecucion"
+      requestBody:
+        $ref: "#/components/requestBodies/Confirmacion"
+      responses:
+        "200":
+          $ref: "#/components/responses/ReciboCorrecto"
+        "400":
+          $ref: "#/components/responses/SolicitudNoValida"
+        "401":
+          $ref: "#/components/responses/NoAutorizado"
+        "409":
+          $ref: "#/components/responses/OperacionRechazada"
+  /api/v1/reservas/{id}/fallar:
+    post:
+      operationId: marcarReservaFallida
+      summary: Registra un motivo de fallo tipado
+      parameters:
+        - $ref: "#/components/parameters/IdEjecucion"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SolicitudFallo"
+      responses:
+        "200":
+          $ref: "#/components/responses/ReciboCorrecto"
+        "400":
+          $ref: "#/components/responses/SolicitudNoValida"
+        "401":
+          $ref: "#/components/responses/NoAutorizado"
+        "409":
+          $ref: "#/components/responses/OperacionRechazada"
+  /api/v1/reservas/{id}/descartar:
+    post:
+      operationId: descartarReserva
+      summary: Retira una reserva con resultados protegidos
+      parameters:
+        - $ref: "#/components/parameters/IdEjecucion"
+      requestBody:
+        $ref: "#/components/requestBodies/Confirmacion"
+      responses:
+        "200":
+          $ref: "#/components/responses/ReciboCorrecto"
+        "400":
+          $ref: "#/components/responses/SolicitudNoValida"
+        "401":
+          $ref: "#/components/responses/NoAutorizado"
+        "409":
+          $ref: "#/components/responses/OperacionRechazada"
+  /api/v1/reservas/{id}/descartar-fallida:
+    post:
+      operationId: descartarReservaFallida
+      summary: Retira una reserva fallida aceptando la pérdida
+      parameters:
+        - $ref: "#/components/parameters/IdEjecucion"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SolicitudDescarteFallido"
+      responses:
+        "200":
+          $ref: "#/components/responses/ReciboCorrecto"
+        "400":
+          $ref: "#/components/responses/SolicitudNoValida"
+        "401":
+          $ref: "#/components/responses/NoAutorizado"
+        "409":
+          $ref: "#/components/responses/OperacionRechazada"
+components:
+  securitySchemes:
+    tokenPortador:
+      type: http
+      scheme: bearer
+      bearerFormat: token opaco
+  parameters:
+    IdPlantilla:
+      name: id
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/Identificador"
+    IdEjecucion:
+      name: id
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/Identificador"
+  requestBodies:
+    Confirmacion:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/SolicitudConfirmacion"
+  responses:
+    ReciboCorrecto:
+      description: Transición completada
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/RespuestaRecibo"
+    SolicitudNoValida:
+      description: Solicitud no válida
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NoAutorizado:
+      description: Autenticación no válida
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    OperacionRechazada:
+      description: Precondición o transición rechazada
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+  schemas:
+    Identificador:
+      type: string
+      minLength: 1
+      maxLength: 80
+      pattern: "^[A-Za-z0-9](?:[A-Za-z0-9_-]*[A-Za-z0-9])?$"
+    Salud:
+      type: object
+      additionalProperties: false
+      required: [estado, version]
+      properties:
+        estado:
+          const: disponible
+        version:
+          type: string
+    SistemaInvitado:
+      type: string
+      enum: [windows, linux]
+    PoliticaRed:
+      type: string
+      enum: [sin_red, aislada]
+    ProtocoloAcceso:
+      type: string
+      enum: [ssh, winrm_https, agente_https]
+    CanalAcceso:
+      type: object
+      additionalProperties: false
+      required: [protocolo, puerto]
+      properties:
+        protocolo:
+          $ref: "#/components/schemas/ProtocoloAcceso"
+        puerto:
+          type: integer
+          minimum: 1
+          maximum: 65535
+    Plantilla:
+      type: object
+      additionalProperties: false
+      required: [id, sistema, politica_red, canal_acceso, capacidades]
+      properties:
+        id:
+          $ref: "#/components/schemas/Identificador"
+        sistema:
+          $ref: "#/components/schemas/SistemaInvitado"
+        politica_red:
+          $ref: "#/components/schemas/PoliticaRed"
+        canal_acceso:
+          oneOf:
+            - $ref: "#/components/schemas/CanalAcceso"
+            - type: "null"
+        capacidades:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/Identificador"
+    EstadoReserva:
+      type: string
+      enum:
+        - preparada
+        - en_ejecucion
+        - detenida
+        - resultados_protegidos
+        - fallida
+        - descartada
+    MotivoFallo:
+      type: string
+      enum:
+        - infraestructura
+        - carga_trabajo
+        - cancelada
+        - resultados_irrecuperables
+    ResultadosProtegidos:
+      type: object
+      additionalProperties: false
+      required: [sha256_manifiesto, artefactos, bytes]
+      properties:
+        sha256_manifiesto:
+          type: string
+          pattern: "^[A-Fa-f0-9]{64}$"
+        artefactos:
+          type: integer
+          minimum: 1
+        bytes:
+          type: integer
+          minimum: 0
+    Recibo:
+      type: object
+      additionalProperties: false
+      required:
+        - version
+        - revision
+        - id_ejecucion
+        - id_plantilla
+        - id_instancia
+        - sistema
+        - estado
+        - creado_en_unix_ms
+        - actualizado_en_unix_ms
+        - resultados
+        - motivo_fallo
+      properties:
+        version:
+          const: 1
+        revision:
+          type: integer
+          minimum: 0
+        id_ejecucion:
+          $ref: "#/components/schemas/Identificador"
+        id_plantilla:
+          $ref: "#/components/schemas/Identificador"
+        id_instancia:
+          $ref: "#/components/schemas/Identificador"
+        sistema:
+          $ref: "#/components/schemas/SistemaInvitado"
+        estado:
+          $ref: "#/components/schemas/EstadoReserva"
+        creado_en_unix_ms:
+          type: integer
+          minimum: 0
+        actualizado_en_unix_ms:
+          type: integer
+          minimum: 0
+        resultados:
+          oneOf:
+            - $ref: "#/components/schemas/ResultadosProtegidos"
+            - type: "null"
+        motivo_fallo:
+          oneOf:
+            - $ref: "#/components/schemas/MotivoFallo"
+            - type: "null"
+    CodigoComprobacion:
+      type: string
+      enum:
+        - plantilla_apagada
+        - sin_estado_guardado
+        - identidad_registrada
+        - disco_sistema_unico
+        - formato_incremental_compatible
+        - origen_registrado
+        - red_conforme
+    Comprobacion:
+      type: object
+      additionalProperties: false
+      required: [codigo, correcta]
+      properties:
+        codigo:
+          $ref: "#/components/schemas/CodigoComprobacion"
+        correcta:
+          type: boolean
+    Diagnostico:
+      type: object
+      additionalProperties: false
+      required: [preparada, comprobaciones]
+      properties:
+        preparada:
+          type: boolean
+        comprobaciones:
+          type: array
+          items:
+            $ref: "#/components/schemas/Comprobacion"
+    PuntoAcceso:
+      type: object
+      additionalProperties: false
+      required: [protocolo, direccion, puerto]
+      properties:
+        protocolo:
+          $ref: "#/components/schemas/ProtocoloAcceso"
+        direccion:
+          type: string
+          format: ip
+        puerto:
+          type: integer
+          minimum: 1
+          maximum: 65535
+    SolicitudPreparar:
+      type: object
+      additionalProperties: false
+      required: [id_plantilla, id_ejecucion, confirmacion]
+      properties:
+        id_plantilla:
+          $ref: "#/components/schemas/Identificador"
+        id_ejecucion:
+          $ref: "#/components/schemas/Identificador"
+        confirmacion:
+          $ref: "#/components/schemas/Identificador"
+    SolicitudConfirmacion:
+      type: object
+      additionalProperties: false
+      required: [confirmacion]
+      properties:
+        confirmacion:
+          $ref: "#/components/schemas/Identificador"
+    SolicitudFallo:
+      type: object
+      additionalProperties: false
+      required: [motivo, confirmacion]
+      properties:
+        motivo:
+          $ref: "#/components/schemas/MotivoFallo"
+        confirmacion:
+          $ref: "#/components/schemas/Identificador"
+    SolicitudDescarteFallido:
+      type: object
+      additionalProperties: false
+      required: [acepta_perdida_resultados, confirmacion]
+      properties:
+        acepta_perdida_resultados:
+          const: true
+        confirmacion:
+          $ref: "#/components/schemas/Identificador"
+    RespuestaPlantillas:
+      type: object
+      additionalProperties: false
+      required: [tipo, datos]
+      properties:
+        tipo:
+          const: plantillas
+        datos:
+          type: array
+          items:
+            $ref: "#/components/schemas/Plantilla"
+    RespuestaReservas:
+      type: object
+      additionalProperties: false
+      required: [tipo, datos]
+      properties:
+        tipo:
+          const: reservas
+        datos:
+          type: array
+          items:
+            $ref: "#/components/schemas/Recibo"
+    RespuestaRecibo:
+      type: object
+      additionalProperties: false
+      required: [tipo, datos]
+      properties:
+        tipo:
+          const: recibo
+        datos:
+          $ref: "#/components/schemas/Recibo"
+    RespuestaDiagnostico:
+      type: object
+      additionalProperties: false
+      required: [tipo, datos]
+      properties:
+        tipo:
+          const: diagnostico
+        datos:
+          $ref: "#/components/schemas/Diagnostico"
+    RespuestaAcceso:
+      type: object
+      additionalProperties: false
+      required: [tipo, datos]
+      properties:
+        tipo:
+          const: acceso
+        datos:
+          $ref: "#/components/schemas/PuntoAcceso"
+    Error:
+      type: object
+      additionalProperties: false
+      required: [codigo, mensaje]
+      properties:
+        codigo:
+          type: string
+        mensaje:
+          type: string
