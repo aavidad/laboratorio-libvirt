@@ -4,7 +4,7 @@
 openapi: 3.1.0
 info:
   title: API de Laboratorio Libvirt
-  version: 1.0.0
+  version: 1.1.0
   license:
     name: GPL-3.0-or-later
     identifier: GPL-3.0-or-later
@@ -44,6 +44,19 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/RespuestaPlantillas"
+        "401":
+          $ref: "#/components/responses/NoAutorizado"
+  /api/v1/destinos-promocion:
+    get:
+      operationId: listarDestinosPromocion
+      summary: Lista destinos de promoción preautorizados
+      responses:
+        "200":
+          description: Destinos públicos sin referencias del hipervisor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RespuestaDestinosPromocion"
         "401":
           $ref: "#/components/responses/NoAutorizado"
   /api/v1/plantillas/{id}/diagnostico:
@@ -132,6 +145,44 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/RespuestaAcceso"
+        "400":
+          $ref: "#/components/responses/SolicitudNoValida"
+        "401":
+          $ref: "#/components/responses/NoAutorizado"
+        "409":
+          $ref: "#/components/responses/OperacionRechazada"
+  /api/v1/reservas/{id}/diagnostico-acceso:
+    get:
+      operationId: diagnosticarAccesoReserva
+      summary: Diagnostica el acceso sin publicar datos de red o libvirt
+      parameters:
+        - $ref: "#/components/parameters/IdEjecucion"
+      responses:
+        "200":
+          description: Comprobaciones saneadas de acceso
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RespuestaDiagnosticoAcceso"
+        "400":
+          $ref: "#/components/responses/SolicitudNoValida"
+        "401":
+          $ref: "#/components/responses/NoAutorizado"
+        "409":
+          $ref: "#/components/responses/OperacionRechazada"
+  /api/v1/reservas/{id}/diagnostico-arranque:
+    get:
+      operationId: diagnosticarArranqueReserva
+      summary: Diagnostica el arranque sin mutar ni publicar recursos internos
+      parameters:
+        - $ref: "#/components/parameters/IdEjecucion"
+      responses:
+        "200":
+          description: Comprobaciones y último fallo de arranque saneados
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RespuestaDiagnosticoArranque"
         "400":
           $ref: "#/components/responses/SolicitudNoValida"
         "401":
@@ -265,6 +316,95 @@ paths:
           $ref: "#/components/responses/NoAutorizado"
         "409":
           $ref: "#/components/responses/OperacionRechazada"
+  /api/v1/reservas/{id}/preparacion/sanear:
+    post:
+      operationId: sanearCandidataPlantilla
+      summary: Retira medios y restaura la red exactos del inventario
+      parameters:
+        - $ref: "#/components/parameters/IdEjecucion"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SolicitudSanearPlantilla"
+      responses:
+        "200":
+          $ref: "#/components/responses/ReciboCorrecto"
+        "400":
+          $ref: "#/components/responses/SolicitudNoValida"
+        "401":
+          $ref: "#/components/responses/NoAutorizado"
+        "409":
+          $ref: "#/components/responses/OperacionRechazada"
+  /api/v1/reservas/{id}/preparacion/iniciar-ciclo:
+    post:
+      operationId: iniciarCicloPlantilla
+      summary: Inicia el siguiente ciclo de aceptación de plantilla
+      parameters:
+        - $ref: "#/components/parameters/IdEjecucion"
+      requestBody:
+        $ref: "#/components/requestBodies/Confirmacion"
+      responses:
+        "200":
+          $ref: "#/components/responses/ReciboCorrecto"
+        "400":
+          $ref: "#/components/responses/SolicitudNoValida"
+        "401":
+          $ref: "#/components/responses/NoAutorizado"
+        "409":
+          $ref: "#/components/responses/OperacionRechazada"
+  /api/v1/reservas/{id}/preparacion/detener-ciclo:
+    post:
+      operationId: detenerCicloPlantilla
+      summary: Solicita el apagado cooperativo del ciclo actual
+      parameters:
+        - $ref: "#/components/parameters/IdEjecucion"
+      requestBody:
+        $ref: "#/components/requestBodies/Confirmacion"
+      responses:
+        "200":
+          $ref: "#/components/responses/ReciboCorrecto"
+        "400":
+          $ref: "#/components/responses/SolicitudNoValida"
+        "401":
+          $ref: "#/components/responses/NoAutorizado"
+        "409":
+          $ref: "#/components/responses/OperacionRechazada"
+  /api/v1/reservas/{id}/preparacion/validar-ciclo:
+    post:
+      operationId: validarCicloPlantilla
+      summary: Observa y registra el ciclo detenido
+      parameters:
+        - $ref: "#/components/parameters/IdEjecucion"
+      requestBody:
+        $ref: "#/components/requestBodies/Confirmacion"
+      responses:
+        "200":
+          $ref: "#/components/responses/ReciboCorrecto"
+        "400":
+          $ref: "#/components/responses/SolicitudNoValida"
+        "401":
+          $ref: "#/components/responses/NoAutorizado"
+        "409":
+          $ref: "#/components/responses/OperacionRechazada"
+  /api/v1/reservas/{id}/preparacion/promover:
+    post:
+      operationId: promoverPlantilla
+      summary: Promueve una candidata validada sin reemplazar el origen
+      parameters:
+        - $ref: "#/components/parameters/IdEjecucion"
+      requestBody:
+        $ref: "#/components/requestBodies/Confirmacion"
+      responses:
+        "200":
+          $ref: "#/components/responses/ReciboCorrecto"
+        "400":
+          $ref: "#/components/responses/SolicitudNoValida"
+        "401":
+          $ref: "#/components/responses/NoAutorizado"
+        "409":
+          $ref: "#/components/responses/OperacionRechazada"
 components:
   securitySchemes:
     tokenPortador:
@@ -319,9 +459,9 @@ components:
   schemas:
     Identificador:
       type: string
-      minLength: 1
-      maxLength: 80
-      pattern: "^[A-Za-z0-9](?:[A-Za-z0-9_-]*[A-Za-z0-9])?$"
+      minLength: 3
+      maxLength: 64
+      pattern: "^[a-z0-9][a-z0-9-]{2,63}$"
     Salud:
       type: object
       additionalProperties: false
@@ -379,6 +519,7 @@ components:
         - detenida
         - resultados_protegidos
         - fallida
+        - promovida
         - descartada
     MotivoFallo:
       type: string
@@ -416,6 +557,7 @@ components:
         - actualizado_en_unix_ms
         - resultados
         - motivo_fallo
+        - preparacion_plantilla
       properties:
         version:
           const: 1
@@ -445,6 +587,152 @@ components:
         motivo_fallo:
           oneOf:
             - $ref: "#/components/schemas/MotivoFallo"
+            - type: "null"
+        preparacion_plantilla:
+          oneOf:
+            - $ref: "#/components/schemas/ProgresoPreparacionPlantilla"
+            - type: "null"
+    DestinoPromocion:
+      type: object
+      additionalProperties: false
+      required: [plantilla, id_origen]
+      properties:
+        plantilla:
+          $ref: "#/components/schemas/Plantilla"
+        id_origen:
+          $ref: "#/components/schemas/Identificador"
+    FasePreparacionPlantilla:
+      type: string
+      enum:
+        - saneada
+        - ciclo_uno_en_curso
+        - ciclo_uno_validado
+        - ciclo_dos_en_curso
+        - ciclo_dos_validado
+        - promocion_en_curso
+        - promovida
+    CodigoComprobacionCandidata:
+      type: string
+      enum:
+        - candidata_apagada
+        - sin_medios_temporales
+        - red_final_conforme
+        - disco_sistema_unico
+        - identidad_independiente
+    ComprobacionCandidata:
+      type: object
+      additionalProperties: false
+      required: [codigo, correcta]
+      properties:
+        codigo:
+          $ref: "#/components/schemas/CodigoComprobacionCandidata"
+        correcta:
+          type: boolean
+    ComprobacionIdentidadSsh:
+      type: object
+      additionalProperties: false
+      required: [aplicable, correcta, observada_en_unix_ms, huella_sha256]
+      oneOf:
+        - properties:
+            aplicable:
+              const: false
+            correcta:
+              const: false
+            observada_en_unix_ms:
+              type: "null"
+            huella_sha256:
+              type: "null"
+        - properties:
+            aplicable:
+              const: true
+            correcta:
+              const: true
+            observada_en_unix_ms:
+              type: integer
+              minimum: 0
+            huella_sha256:
+              type: string
+              pattern: "^SHA256:[A-Za-z0-9+/]{43}$"
+      properties:
+        aplicable:
+          type: boolean
+        correcta:
+          type: boolean
+        observada_en_unix_ms:
+          oneOf:
+            - type: integer
+              minimum: 0
+            - type: "null"
+        huella_sha256:
+          oneOf:
+            - type: string
+              pattern: "^SHA256:[A-Za-z0-9+/]{43}$"
+            - type: "null"
+    ValidacionCicloPlantilla:
+      type: object
+      additionalProperties: false
+      required:
+        - numero
+        - iniciada_en_unix_ms
+        - detenida_en_unix_ms
+        - validada_en_unix_ms
+        - identidad_ssh
+        - comprobaciones
+      properties:
+        numero:
+          type: integer
+          minimum: 1
+          maximum: 2
+        iniciada_en_unix_ms:
+          type: integer
+          minimum: 0
+        detenida_en_unix_ms:
+          type: integer
+          minimum: 0
+        validada_en_unix_ms:
+          type: integer
+          minimum: 0
+        identidad_ssh:
+          $ref: "#/components/schemas/ComprobacionIdentidadSsh"
+        comprobaciones:
+          type: array
+          minItems: 5
+          maxItems: 5
+          items:
+            $ref: "#/components/schemas/ComprobacionCandidata"
+    ProgresoPreparacionPlantilla:
+      type: object
+      additionalProperties: false
+      required:
+        - id_plantilla_destino
+        - fase
+        - ciclos_validados
+        - ciclo_iniciado_en_unix_ms
+        - ciclo_detenido_en_unix_ms
+        - identidad_ssh_en_curso
+      properties:
+        id_plantilla_destino:
+          $ref: "#/components/schemas/Identificador"
+        fase:
+          $ref: "#/components/schemas/FasePreparacionPlantilla"
+        ciclos_validados:
+          type: array
+          maxItems: 2
+          items:
+            $ref: "#/components/schemas/ValidacionCicloPlantilla"
+        ciclo_iniciado_en_unix_ms:
+          oneOf:
+            - type: integer
+              minimum: 0
+            - type: "null"
+        ciclo_detenido_en_unix_ms:
+          oneOf:
+            - type: integer
+              minimum: 0
+            - type: "null"
+        identidad_ssh_en_curso:
+          oneOf:
+            - $ref: "#/components/schemas/ComprobacionIdentidadSsh"
             - type: "null"
     CodigoComprobacion:
       type: string
@@ -476,10 +764,101 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Comprobacion"
+    CodigoComprobacionAcceso:
+      type: string
+      enum:
+        - reserva_en_ejecucion
+        - instancia_encendida
+        - direccion_observable
+        - direccion_lease_observable
+        - direccion_agente_observable
+        - direccion_arp_observable
+        - qga_disponible
+        - marca_uuid_presente
+        - marca_uuid_coincidente
+        - clave_servidor_ssh_presente
+        - clave_servidor_ssh_valida
+    ComprobacionAcceso:
+      type: object
+      additionalProperties: false
+      required: [codigo, aplicable, bloqueante, correcta]
+      properties:
+        codigo:
+          $ref: "#/components/schemas/CodigoComprobacionAcceso"
+        aplicable:
+          type: boolean
+        bloqueante:
+          type: boolean
+        correcta:
+          type: boolean
+    DiagnosticoAcceso:
+      type: object
+      additionalProperties: false
+      required: [preparado, comprobaciones]
+      properties:
+        preparado:
+          type: boolean
+        comprobaciones:
+          type: array
+          minItems: 11
+          maxItems: 11
+          items:
+            $ref: "#/components/schemas/ComprobacionAcceso"
+    CodigoComprobacionArranque:
+      type: string
+      enum:
+        - reserva_iniciable
+        - instancia_registrada
+        - instancia_apagada
+        - definicion_valida
+        - almacenamiento_presente
+        - recursos_escritura_disponibles
+        - redes_requeridas_activas
+        - estado_guardado_ausente
+    CodigoFalloArranque:
+      type: string
+      enum:
+        - bloqueo_escritura_recurso
+        - permiso_recurso_denegado
+        - recurso_requerido_ausente
+        - red_requerida_inactiva
+        - firmware_no_disponible
+        - tpm_no_disponible
+        - espacio_insuficiente
+        - configuracion_no_admitida
+        - no_clasificado
+    ComprobacionArranque:
+      type: object
+      additionalProperties: false
+      required: [codigo, correcta]
+      properties:
+        codigo:
+          $ref: "#/components/schemas/CodigoComprobacionArranque"
+        correcta:
+          type: boolean
+    DiagnosticoArranque:
+      type: object
+      additionalProperties: false
+      required: [iniciable, ultimo_fallo, ultimo_estado_fallido, comprobaciones]
+      properties:
+        iniciable:
+          type: boolean
+        ultimo_fallo:
+          oneOf:
+            - $ref: "#/components/schemas/CodigoFalloArranque"
+            - type: "null"
+        ultimo_estado_fallido:
+          type: boolean
+        comprobaciones:
+          type: array
+          minItems: 8
+          maxItems: 8
+          items:
+            $ref: "#/components/schemas/ComprobacionArranque"
     PuntoAcceso:
       type: object
       additionalProperties: false
-      required: [protocolo, direccion, puerto]
+      required: [protocolo, direccion, puerto, identidad_servidor]
       properties:
         protocolo:
           $ref: "#/components/schemas/ProtocoloAcceso"
@@ -490,6 +869,25 @@ components:
           type: integer
           minimum: 1
           maximum: 65535
+        identidad_servidor:
+          oneOf:
+            - $ref: "#/components/schemas/IdentidadServidor"
+            - type: "null"
+    IdentidadServidor:
+      type: object
+      additionalProperties: false
+      required: [algoritmo, clave_publica, huella_sha256]
+      properties:
+        algoritmo:
+          const: ssh-ed25519
+        clave_publica:
+          type: string
+          minLength: 80
+          maxLength: 80
+          pattern: "^ssh-ed25519 [A-Za-z0-9+/]{68}$"
+        huella_sha256:
+          type: string
+          pattern: "^SHA256:[A-Za-z0-9+/]{43}$"
     SolicitudPreparar:
       type: object
       additionalProperties: false
@@ -506,6 +904,15 @@ components:
       additionalProperties: false
       required: [confirmacion]
       properties:
+        confirmacion:
+          $ref: "#/components/schemas/Identificador"
+    SolicitudSanearPlantilla:
+      type: object
+      additionalProperties: false
+      required: [id_destino, confirmacion]
+      properties:
+        id_destino:
+          $ref: "#/components/schemas/Identificador"
         confirmacion:
           $ref: "#/components/schemas/Identificador"
     SolicitudFallo:
@@ -548,6 +955,17 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Recibo"
+    RespuestaDestinosPromocion:
+      type: object
+      additionalProperties: false
+      required: [tipo, datos]
+      properties:
+        tipo:
+          const: destinos_promocion
+        datos:
+          type: array
+          items:
+            $ref: "#/components/schemas/DestinoPromocion"
     RespuestaRecibo:
       type: object
       additionalProperties: false
@@ -575,6 +993,24 @@ components:
           const: acceso
         datos:
           $ref: "#/components/schemas/PuntoAcceso"
+    RespuestaDiagnosticoAcceso:
+      type: object
+      additionalProperties: false
+      required: [tipo, datos]
+      properties:
+        tipo:
+          const: diagnostico_acceso
+        datos:
+          $ref: "#/components/schemas/DiagnosticoAcceso"
+    RespuestaDiagnosticoArranque:
+      type: object
+      additionalProperties: false
+      required: [tipo, datos]
+      properties:
+        tipo:
+          const: diagnostico_arranque
+        datos:
+          $ref: "#/components/schemas/DiagnosticoArranque"
     Error:
       type: object
       additionalProperties: false

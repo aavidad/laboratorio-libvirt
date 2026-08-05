@@ -3,11 +3,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 const DOMINIO: &[(&str, &str)] = &[
+    ("acceso.rs", include_str!("../src/dominio/acceso.rs")),
     (
         "identificador.rs",
         include_str!("../src/dominio/identificador.rs"),
     ),
     ("plantilla.rs", include_str!("../src/dominio/plantilla.rs")),
+    (
+        "preparacion_plantilla.rs",
+        include_str!("../src/dominio/preparacion_plantilla.rs"),
+    ),
     ("reserva.rs", include_str!("../src/dominio/reserva.rs")),
 ];
 
@@ -15,6 +20,10 @@ const APLICACION: &[(&str, &str)] = &[
     (
         "gestionar_reserva.rs",
         include_str!("../src/aplicacion/gestionar_reserva.rs"),
+    ),
+    (
+        "gestionar_preparacion_plantilla.rs",
+        include_str!("../src/aplicacion/gestionar_preparacion_plantilla.rs"),
     ),
     ("ordenes.rs", include_str!("../src/aplicacion/ordenes.rs")),
     ("puertos.rs", include_str!("../src/aplicacion/puertos.rs")),
