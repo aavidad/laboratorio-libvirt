@@ -4,6 +4,7 @@
 
 //! Casos de uso y puertos del laboratorio.
 
+pub mod gestionar_preparacion_plantilla;
 pub mod gestionar_reserva;
 pub mod ordenes;
 pub mod puertos;

@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "uri_libvirt": "qemu:///system",
   "raiz_recibos": "/var/lib/laboratorio-libvirt/recibos",
   "raiz_resultados": "/var/lib/laboratorio-libvirt/resultados",
@@ -28,6 +28,7 @@
         "protocolo": "ssh",
         "puerto": 22
       },
+      "perfil_identidad_acceso": "windows_openssh",
       "dominio": "windows-analisis-base",
       "uuid_esperado": "00000000-0000-0000-0000-000000000000",
       "destino_disco": "sda",
@@ -49,6 +50,37 @@
       "pool_plantilla": "plantillas",
       "volumen_plantilla": "linux-pruebas-base.qcow2",
       "pool_instancias": "laboratorio-instancias"
+    }
+  ],
+  "promociones": [
+    {
+      "id": "windows-analisis-siguiente",
+      "id_origen": "windows-analisis",
+      "sistema": "windows",
+      "politica_red": "aislada",
+      "capacidades": [
+        "analisis-windows",
+        "escritorio-interactivo"
+      ],
+      "canal_acceso": {
+        "protocolo": "ssh",
+        "puerto": 22
+      },
+      "perfil_identidad_acceso": "windows_openssh",
+      "dominio_destino": "windows-analisis-siguiente-base",
+      "uuid_destino": "00000000-0000-0000-0000-000000000001",
+      "destino_disco": "sda",
+      "pool_destino": "plantillas",
+      "volumen_destino": "windows-analisis-siguiente-base.qcow2",
+      "red_preparacion": "laboratorio-preparacion",
+      "red_final": "laboratorio-aislado",
+      "medios_temporales": [
+        {
+          "destino": "sdb",
+          "pool": "medios-preparacion",
+          "volumen": "bootstrap-controlado.iso"
+        }
+      ]
     }
   ]
 }

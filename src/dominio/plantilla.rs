@@ -37,11 +37,21 @@ pub struct CanalAcceso {
     pub puerto: u16,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct PuntoAcceso {
     pub protocolo: ProtocoloAcceso,
     pub direccion: IpAddr,
     pub puerto: u16,
+    pub identidad_servidor: Option<IdentidadServidor>,
+}
+
+/// Identidad pública obtenida fuera de banda por el proveedor de máquinas.
+/// Nunca procede de la red que después se autenticará.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct IdentidadServidor {
+    pub algoritmo: Identificador,
+    pub clave_publica: String,
+    pub huella_sha256: String,
 }
 
 /// Descripción tecnológica neutra que pueden consultar los consumidores.

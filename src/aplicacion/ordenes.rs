@@ -2,8 +2,11 @@
 // Copyright (C) 2026 Alberto Avidad
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+use crate::dominio::acceso::DiagnosticoAcceso;
+use crate::dominio::arranque::DiagnosticoArranque;
 use crate::dominio::identificador::Identificador;
 use crate::dominio::plantilla::{DiagnosticoPlantilla, Plantilla, PuntoAcceso};
+use crate::dominio::preparacion_plantilla::DestinoPromocion;
 use crate::dominio::reserva::{MotivoFallo, ReciboReserva};
 use serde::Serialize;
 
@@ -11,6 +14,7 @@ use serde::Serialize;
 pub enum Orden {
     ListarPlantillas,
     ListarReservas,
+    ListarDestinosPromocion,
     Inspeccionar {
         id_plantilla: Identificador,
     },
@@ -18,6 +22,12 @@ pub enum Orden {
         id_ejecucion: Identificador,
     },
     Acceso {
+        id_ejecucion: Identificador,
+    },
+    DiagnosticarAcceso {
+        id_ejecucion: Identificador,
+    },
+    DiagnosticarArranque {
         id_ejecucion: Identificador,
     },
     Preparar {
@@ -55,6 +65,27 @@ pub enum Orden {
         confirmacion: Identificador,
         acepta_perdida_resultados: bool,
     },
+    SanearPlantilla {
+        id_ejecucion: Identificador,
+        id_destino: Identificador,
+        confirmacion: Identificador,
+    },
+    IniciarCicloPlantilla {
+        id_ejecucion: Identificador,
+        confirmacion: Identificador,
+    },
+    DetenerCicloPlantilla {
+        id_ejecucion: Identificador,
+        confirmacion: Identificador,
+    },
+    ValidarCicloPlantilla {
+        id_ejecucion: Identificador,
+        confirmacion: Identificador,
+    },
+    PromoverPlantilla {
+        id_ejecucion: Identificador,
+        confirmacion: Identificador,
+    },
 }
 
 #[derive(Debug, Serialize)]
@@ -65,4 +96,7 @@ pub enum Respuesta {
     Diagnostico(DiagnosticoPlantilla),
     Recibo(ReciboReserva),
     Acceso(PuntoAcceso),
+    DiagnosticoAcceso(DiagnosticoAcceso),
+    DiagnosticoArranque(DiagnosticoArranque),
+    DestinosPromocion(Vec<DestinoPromocion>),
 }

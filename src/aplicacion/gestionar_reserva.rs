@@ -3,11 +3,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use crate::aplicacion::puertos::{
-    AlmacenRecibosReserva, CatalogoPlantillas, EstadoInstancia, ProveedorInstancias, Reloj,
-    VerificadorResultados,
+    AlmacenRecibosReserva, CatalogoPlantillas, EstadoInstancia, ObservadorAcceso,
+    ObservadorArranque, ProveedorInstancias, Reloj, VerificadorResultados,
 };
+use crate::dominio::acceso::{diagnosticar_acceso, DiagnosticoAcceso};
+use crate::dominio::arranque::{diagnosticar_arranque, DiagnosticoArranque};
 use crate::dominio::identificador::Identificador;
-use crate::dominio::plantilla::{diagnosticar, DiagnosticoPlantilla, PuntoAcceso};
+use crate::dominio::plantilla::{diagnosticar, DiagnosticoPlantilla, ProtocoloAcceso, PuntoAcceso};
 use crate::dominio::reserva::{EstadoReserva, MotivoFallo, ReciboReserva};
 use anyhow::{bail, Context, Result};
 use std::time::Duration;
@@ -39,10 +41,53 @@ where
     Ok(diagnosticar(&estado))
 }
 
+pub fn diagnosticar_acceso_reserva<C, P, A>(
+    catalogo: &C,
+    proveedor: &P,
+    almacen: &A,
+    id_ejecucion: &Identificador,
+) -> Result<DiagnosticoAcceso>
+where
+    C: CatalogoPlantillas,
+    P: ObservadorAcceso,
+    A: AlmacenRecibosReserva,
+{
+    let recibo = almacen.cargar(id_ejecucion)?;
+    let plantilla = catalogo.obtener(&recibo.id_plantilla)?;
+    let exige_identidad_ssh = plantilla
+        .canal_acceso
+        .as_ref()
+        .is_some_and(|canal| canal.protocolo == ProtocoloAcceso::Ssh);
+    let estado = proveedor.observar_acceso(&plantilla, &recibo);
+    Ok(diagnosticar_acceso(
+        recibo.estado == EstadoReserva::EnEjecucion,
+        exige_identidad_ssh,
+        estado,
+    ))
+}
+
+pub fn diagnosticar_arranque_reserva<P, A>(
+    proveedor: &P,
+    almacen: &A,
+    id_ejecucion: &Identificador,
+) -> Result<DiagnosticoArranque>
+where
+    P: ObservadorArranque,
+    A: AlmacenRecibosReserva,
+{
+    let recibo = almacen.cargar(id_ejecucion)?;
+    let reserva_iniciable = matches!(
+        recibo.estado,
+        EstadoReserva::Preparada | EstadoReserva::Detenida
+    ) && recibo.preparacion_plantilla.is_none();
+    let estado = proveedor.observar_arranque(&recibo)?;
+    Ok(diagnosticar_arranque(reserva_iniciable, estado))
+}
+
 impl<C, P, A, V, R> GestorReservas<C, P, A, V, R>
 where
     C: CatalogoPlantillas,
-    P: ProveedorInstancias,
+    P: ProveedorInstancias + ObservadorArranque,
     A: AlmacenRecibosReserva,
     V: VerificadorResultados,
     R: Reloj,
@@ -83,7 +128,12 @@ where
             .almacen
             .listar()?
             .into_iter()
-            .filter(|recibo| recibo.estado != EstadoReserva::Descartada)
+            .filter(|recibo| {
+                !matches!(
+                    recibo.estado,
+                    EstadoReserva::Descartada | EstadoReserva::Promovida
+                )
+            })
             .count();
         if activas >= self.maximo_reservas_activas {
             bail!("se alcanzó la cuota de reservas activas");
@@ -107,6 +157,7 @@ where
             self.reloj.ahora_unix_ms(),
         )?;
         self.almacen.guardar_nuevo(&recibo)?;
+        let _bloqueo_mutacion = self.almacen.bloquear_mutacion(&id_ejecucion)?;
         drop(bloqueo_preparacion);
         if let Err(error) = self.proveedor.preparar_instancia(&plantilla, &recibo) {
             let mut recibo_fallido = recibo;
@@ -127,12 +178,24 @@ where
         confirmacion: &Identificador,
     ) -> Result<ReciboReserva> {
         exigir_confirmacion(id_ejecucion, confirmacion)?;
+        let _bloqueo = self.almacen.bloquear_mutacion(id_ejecucion)?;
         let mut recibo = self.almacen.cargar(id_ejecucion)?;
-        if self.proveedor.estado_instancia(&recibo.id_instancia)? != EstadoInstancia::Apagada {
-            bail!("la instancia no está apagada y preparada");
+        let instante = self.reloj.ahora_unix_ms();
+        let mut recibo_iniciado = recibo.clone();
+        recibo_iniciado.iniciar(instante)?;
+        let diagnostico = diagnosticar_arranque(true, self.proveedor.observar_arranque(&recibo)?);
+        if !diagnostico.iniciable {
+            let fallos = diagnostico
+                .comprobaciones
+                .iter()
+                .filter(|comprobacion| !comprobacion.correcta)
+                .map(|comprobacion| comprobacion.codigo.codigo())
+                .collect::<Vec<_>>()
+                .join(", ");
+            bail!("la instancia no cumple las precondiciones de arranque: {fallos}");
         }
         self.proveedor.iniciar_instancia(&recibo.id_instancia)?;
-        recibo.iniciar(self.reloj.ahora_unix_ms())?;
+        recibo = recibo_iniciado;
         self.almacen.actualizar(&recibo)?;
         Ok(recibo)
     }
@@ -146,6 +209,7 @@ where
         confirmacion: &Identificador,
     ) -> Result<ReciboReserva> {
         exigir_confirmacion(id_ejecucion, confirmacion)?;
+        let _bloqueo = self.almacen.bloquear_mutacion(id_ejecucion)?;
         let mut recibo = self.almacen.cargar(id_ejecucion)?;
         let estado_instancia = self.proveedor.estado_instancia(&recibo.id_instancia)?;
         let modificada = match (recibo.estado, estado_instancia) {
@@ -160,7 +224,9 @@ where
             (EstadoReserva::Preparada | EstadoReserva::Detenida, EstadoInstancia::Apagada)
             | (EstadoReserva::EnEjecucion, EstadoInstancia::Encendida)
             | (
-                EstadoReserva::ResultadosProtegidos | EstadoReserva::Fallida,
+                EstadoReserva::ResultadosProtegidos
+                | EstadoReserva::Fallida
+                | EstadoReserva::Promovida,
                 EstadoInstancia::Apagada | EstadoInstancia::Ausente,
             )
             | (EstadoReserva::Descartada, EstadoInstancia::Ausente) => false,
@@ -180,15 +246,21 @@ where
         let plantilla = self.catalogo.obtener(&recibo.id_plantilla)?;
         let canal = plantilla
             .canal_acceso
+            .clone()
             .context("la plantilla no declara un canal de acceso")?;
         let direccion = self
             .proveedor
             .direccion_instancia(&recibo.id_instancia)?
             .context("la instancia aún no publica una dirección utilizable")?;
+        let identidad_servidor = self.proveedor.identidad_servidor(&plantilla, &recibo)?;
+        if canal.protocolo == ProtocoloAcceso::Ssh && identidad_servidor.is_none() {
+            bail!("la instancia no publica una identidad SSH autenticada fuera de banda");
+        }
         Ok(PuntoAcceso {
             protocolo: canal.protocolo,
             direccion,
             puerto: canal.puerto,
+            identidad_servidor,
         })
     }
 
@@ -198,6 +270,7 @@ where
         confirmacion: &Identificador,
     ) -> Result<ReciboReserva> {
         exigir_confirmacion(id_ejecucion, confirmacion)?;
+        let _bloqueo = self.almacen.bloquear_mutacion(id_ejecucion)?;
         let mut recibo = self.almacen.cargar(id_ejecucion)?;
         if recibo.estado != EstadoReserva::EnEjecucion {
             bail!("la reserva no está en ejecución");
@@ -226,6 +299,7 @@ where
         confirmacion: &Identificador,
     ) -> Result<ReciboReserva> {
         exigir_confirmacion(id_ejecucion, confirmacion)?;
+        let _bloqueo = self.almacen.bloquear_mutacion(id_ejecucion)?;
         let mut recibo = self.almacen.cargar(id_ejecucion)?;
         let resultados = self.resultados.verificar(id_ejecucion)?;
         recibo.proteger_resultados(resultados, self.reloj.ahora_unix_ms())?;
@@ -239,6 +313,7 @@ where
         confirmacion: &Identificador,
     ) -> Result<ReciboReserva> {
         exigir_confirmacion(id_ejecucion, confirmacion)?;
+        let _bloqueo = self.almacen.bloquear_mutacion(id_ejecucion)?;
         let mut recibo = self.almacen.cargar(id_ejecucion)?;
         if recibo.estado != EstadoReserva::ResultadosProtegidos {
             bail!("los resultados no están protegidos; se rechaza el descarte");
@@ -259,6 +334,7 @@ where
         confirmacion: &Identificador,
     ) -> Result<ReciboReserva> {
         exigir_confirmacion(id_ejecucion, confirmacion)?;
+        let _bloqueo = self.almacen.bloquear_mutacion(id_ejecucion)?;
         let mut recibo = self.almacen.cargar(id_ejecucion)?;
         self.exigir_instancia_apagada(&recibo)?;
         recibo.marcar_fallida(motivo, self.reloj.ahora_unix_ms())?;
@@ -273,6 +349,7 @@ where
         acepta_perdida_resultados: bool,
     ) -> Result<ReciboReserva> {
         exigir_confirmacion(id_ejecucion, confirmacion)?;
+        let _bloqueo = self.almacen.bloquear_mutacion(id_ejecucion)?;
         if !acepta_perdida_resultados {
             bail!("falta aceptar explícitamente la pérdida de resultados");
         }
@@ -307,7 +384,7 @@ fn exigir_confirmacion(id_ejecucion: &Identificador, confirmacion: &Identificado
 #[cfg(test)]
 mod pruebas {
     use super::*;
-    use crate::aplicacion::puertos::GuardiaPreparacion;
+    use crate::aplicacion::puertos::{GuardiaMutacion, GuardiaPreparacion};
     use crate::dominio::plantilla::{EstadoPlantilla, Plantilla, PoliticaRed, SistemaInvitado};
     use crate::dominio::reserva::ResultadosProtegidos;
     use std::collections::{BTreeMap, BTreeSet};
@@ -332,6 +409,8 @@ mod pruebas {
     struct Proveedor {
         plantilla_apagada: bool,
         instancia: Mutex<EstadoInstancia>,
+        identidad_disponible: bool,
+        recursos_escritura_disponibles: Mutex<bool>,
     }
 
     impl ProveedorInstancias for Proveedor {
@@ -374,9 +453,71 @@ mod pruebas {
             Ok(Some("192.0.2.10".parse().unwrap()))
         }
 
+        fn identidad_servidor(
+            &self,
+            _: &Plantilla,
+            _: &ReciboReserva,
+        ) -> Result<Option<crate::dominio::plantilla::IdentidadServidor>> {
+            Ok(self
+                .identidad_disponible
+                .then(|| crate::dominio::plantilla::IdentidadServidor {
+                    algoritmo: Identificador::nuevo("ssh-ed25519").unwrap(),
+                    clave_publica: concat!(
+                        "ssh-ed25519 ",
+                        "AAAAC3NzaC1lZDI1NTE5AAAAIFhmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZm"
+                    )
+                    .to_owned(),
+                    huella_sha256: "SHA256:m/ejOXkI0ofKT+bW34mhHdSH63xu9c+QU7djuKirDXM".to_owned(),
+                }))
+        }
+
         fn retirar_instancia(&self, _: &Plantilla, _: &Identificador) -> Result<()> {
             *self.instancia.lock().unwrap() = EstadoInstancia::Ausente;
             Ok(())
+        }
+    }
+
+    impl ObservadorAcceso for Proveedor {
+        fn observar_acceso(
+            &self,
+            _: &Plantilla,
+            _: &ReciboReserva,
+        ) -> crate::dominio::acceso::EstadoAccesoObservado {
+            let encendida = *self.instancia.lock().unwrap() == EstadoInstancia::Encendida;
+            crate::dominio::acceso::EstadoAccesoObservado {
+                instancia_encendida: encendida,
+                direccion_lease_observable: encendida,
+                direccion_agente_observable: false,
+                direccion_arp_observable: false,
+                qga_disponible: encendida,
+                marca_uuid_presente: encendida && self.identidad_disponible,
+                marca_uuid_coincidente: encendida && self.identidad_disponible,
+                clave_servidor_ssh_presente: encendida && self.identidad_disponible,
+                clave_servidor_ssh_valida: encendida && self.identidad_disponible,
+            }
+        }
+    }
+
+    impl ObservadorArranque for Proveedor {
+        fn observar_arranque(
+            &self,
+            _: &ReciboReserva,
+        ) -> Result<crate::dominio::arranque::EstadoArranqueObservado> {
+            let estado = *self.instancia.lock().unwrap();
+            Ok(crate::dominio::arranque::EstadoArranqueObservado {
+                instancia_registrada: estado != EstadoInstancia::Ausente,
+                instancia_apagada: estado == EstadoInstancia::Apagada,
+                definicion_valida: true,
+                almacenamiento_presente: true,
+                recursos_escritura_disponibles: *self
+                    .recursos_escritura_disponibles
+                    .lock()
+                    .unwrap(),
+                redes_requeridas_activas: true,
+                estado_guardado_ausente: true,
+                ultimo_estado_fallido: false,
+                ultimo_fallo: None,
+            })
         }
     }
 
@@ -385,6 +526,10 @@ mod pruebas {
 
     impl AlmacenRecibosReserva for Almacen {
         fn bloquear_preparacion(&self) -> Result<Box<dyn GuardiaPreparacion + '_>> {
+            Ok(Box::new(GuardiaNula))
+        }
+
+        fn bloquear_mutacion(&self, _: &Identificador) -> Result<Box<dyn GuardiaMutacion + '_>> {
             Ok(Box::new(GuardiaNula))
         }
 
@@ -430,6 +575,7 @@ mod pruebas {
     struct GuardiaNula;
 
     impl GuardiaPreparacion for GuardiaNula {}
+    impl GuardiaMutacion for GuardiaNula {}
 
     struct Resultados;
 
@@ -479,6 +625,8 @@ mod pruebas {
             Proveedor {
                 plantilla_apagada: apagada,
                 instancia: Mutex::new(EstadoInstancia::Ausente),
+                identidad_disponible: true,
+                recursos_escritura_disponibles: Mutex::new(true),
             },
             Almacen::default(),
             Resultados,
@@ -494,6 +642,24 @@ mod pruebas {
         assert!(gestor(false)
             .preparar(plantilla().id, id.clone(), &id)
             .is_err());
+    }
+
+    #[test]
+    fn no_inicia_si_otro_dominio_bloquea_un_recurso_de_escritura() {
+        let id = Identificador::nuevo("ejecucion-bloqueada").unwrap();
+        let gestor = gestor(true);
+        gestor.preparar(plantilla().id, id.clone(), &id).unwrap();
+        *gestor
+            .proveedor
+            .recursos_escritura_disponibles
+            .lock()
+            .unwrap() = false;
+        let error = gestor.iniciar(&id, &id).unwrap_err().to_string();
+        assert!(error.contains("recursos_escritura_disponibles"));
+        assert_eq!(
+            *gestor.proveedor.instancia.lock().unwrap(),
+            EstadoInstancia::Apagada
+        );
     }
 
     #[test]
@@ -547,6 +713,53 @@ mod pruebas {
         gestor.iniciar(&id, &id).unwrap();
         let acceso = gestor.obtener_acceso(&id).unwrap();
         assert_eq!(acceso.puerto, 22);
+    }
+
+    #[test]
+    fn rechaza_ssh_sin_identidad_autenticada_fuera_de_banda() {
+        let id = Identificador::nuevo("ejecucion-sin-identidad").unwrap();
+        let mut gestor = gestor(true);
+        gestor.proveedor.identidad_disponible = false;
+        gestor.preparar(plantilla().id, id.clone(), &id).unwrap();
+        gestor.iniciar(&id, &id).unwrap();
+        assert!(gestor.obtener_acceso(&id).is_err());
+    }
+
+    #[test]
+    fn diagnostica_acceso_sin_publicar_la_direccion_observada() {
+        let id = Identificador::nuevo("ejecucion-diagnostico").unwrap();
+        let gestor = gestor(true);
+        gestor
+            .preparar(plantilla().id.clone(), id.clone(), &id)
+            .unwrap();
+        gestor.iniciar(&id, &id).unwrap();
+        let diagnostico =
+            diagnosticar_acceso_reserva(&gestor.catalogo, &gestor.proveedor, &gestor.almacen, &id)
+                .unwrap();
+        assert!(diagnostico.preparado);
+        let valor = serde_json::to_value(&diagnostico).unwrap();
+        let campos = valor
+            .as_object()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        assert_eq!(campos, ["comprobaciones", "preparado"]);
+        assert!(valor["comprobaciones"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|comprobacion| {
+                comprobacion.as_object().unwrap().keys().all(|campo| {
+                    matches!(
+                        campo.as_str(),
+                        "codigo" | "aplicable" | "bloqueante" | "correcta"
+                    )
+                })
+            }));
+        let publico = serde_json::to_string(&valor).unwrap();
+        assert!(!publico.contains("192.0.2"));
+        assert!(!publico.contains("direccion\":"));
     }
 
     #[test]

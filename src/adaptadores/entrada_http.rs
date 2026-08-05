@@ -55,6 +55,13 @@ struct SolicitudConfirmacion {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct SolicitudSanearPlantilla {
+    id_destino: Identificador,
+    confirmacion: Identificador,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct SolicitudFallo {
     motivo: MotivoFallo,
     confirmacion: Identificador,
@@ -105,6 +112,7 @@ fn construir_rutas(estado: EstadoCompartido) -> Router {
     Router::new()
         .route("/api/v1/salud", get(salud))
         .route("/api/v1/plantillas", get(listar_plantillas))
+        .route("/api/v1/destinos-promocion", get(listar_destinos_promocion))
         .route(
             "/api/v1/plantillas/{id}/diagnostico",
             get(inspeccionar_plantilla),
@@ -112,6 +120,14 @@ fn construir_rutas(estado: EstadoCompartido) -> Router {
         .route("/api/v1/reservas", get(listar_reservas).post(preparar))
         .route("/api/v1/reservas/{id}", get(estado_reserva))
         .route("/api/v1/reservas/{id}/acceso", get(acceso_reserva))
+        .route(
+            "/api/v1/reservas/{id}/diagnostico-acceso",
+            get(diagnostico_acceso_reserva),
+        )
+        .route(
+            "/api/v1/reservas/{id}/diagnostico-arranque",
+            get(diagnostico_arranque_reserva),
+        )
         .route("/api/v1/reservas/{id}/iniciar", post(iniciar))
         .route("/api/v1/reservas/{id}/detener", post(detener))
         .route("/api/v1/reservas/{id}/reconciliar", post(reconciliar))
@@ -124,6 +140,26 @@ fn construir_rutas(estado: EstadoCompartido) -> Router {
         .route(
             "/api/v1/reservas/{id}/descartar-fallida",
             post(descartar_fallida),
+        )
+        .route(
+            "/api/v1/reservas/{id}/preparacion/sanear",
+            post(sanear_plantilla),
+        )
+        .route(
+            "/api/v1/reservas/{id}/preparacion/iniciar-ciclo",
+            post(iniciar_ciclo_plantilla),
+        )
+        .route(
+            "/api/v1/reservas/{id}/preparacion/detener-ciclo",
+            post(detener_ciclo_plantilla),
+        )
+        .route(
+            "/api/v1/reservas/{id}/preparacion/validar-ciclo",
+            post(validar_ciclo_plantilla),
+        )
+        .route(
+            "/api/v1/reservas/{id}/preparacion/promover",
+            post(promover_plantilla),
         )
         .layer(DefaultBodyLimit::max(MAXIMO_BYTES_SOLICITUD))
         .route_layer(middleware::from_fn_with_state(estado.clone(), autenticar))
@@ -176,6 +212,19 @@ async fn listar_reservas(State(estado): State<EstadoCompartido>, cabeceras: Head
     ejecutar_orden(estado, cabeceras, Orden::ListarReservas, StatusCode::OK).await
 }
 
+async fn listar_destinos_promocion(
+    State(estado): State<EstadoCompartido>,
+    cabeceras: HeaderMap,
+) -> Response {
+    ejecutar_orden(
+        estado,
+        cabeceras,
+        Orden::ListarDestinosPromocion,
+        StatusCode::OK,
+    )
+    .await
+}
+
 async fn inspeccionar_plantilla(
     State(estado): State<EstadoCompartido>,
     Ruta(id): Ruta<String>,
@@ -222,6 +271,40 @@ async fn acceso_reserva(
         estado,
         cabeceras,
         Orden::Acceso { id_ejecucion },
+        StatusCode::OK,
+    )
+    .await
+}
+
+async fn diagnostico_acceso_reserva(
+    State(estado): State<EstadoCompartido>,
+    Ruta(id): Ruta<String>,
+    cabeceras: HeaderMap,
+) -> Response {
+    let Ok(id_ejecucion) = Identificador::nuevo(id) else {
+        return solicitud_no_valida(&cabeceras, &estado);
+    };
+    ejecutar_orden(
+        estado,
+        cabeceras,
+        Orden::DiagnosticarAcceso { id_ejecucion },
+        StatusCode::OK,
+    )
+    .await
+}
+
+async fn diagnostico_arranque_reserva(
+    State(estado): State<EstadoCompartido>,
+    Ruta(id): Ruta<String>,
+    cabeceras: HeaderMap,
+) -> Response {
+    let Ok(id_ejecucion) = Identificador::nuevo(id) else {
+        return solicitud_no_valida(&cabeceras, &estado);
+    };
+    ejecutar_orden(
+        estado,
+        cabeceras,
+        Orden::DiagnosticarArranque { id_ejecucion },
         StatusCode::OK,
     )
     .await
@@ -404,6 +487,119 @@ async fn descartar_fallida(
             acepta_perdida_resultados: solicitud.acepta_perdida_resultados,
         },
         StatusCode::OK,
+    )
+    .await
+}
+
+async fn sanear_plantilla(
+    State(estado): State<EstadoCompartido>,
+    Ruta(id): Ruta<String>,
+    cabeceras: HeaderMap,
+    cuerpo: std::result::Result<Json<SolicitudSanearPlantilla>, JsonRejection>,
+) -> Response {
+    let Ok(Json(solicitud)) = cuerpo else {
+        return solicitud_no_valida(&cabeceras, &estado);
+    };
+    let Ok(id_ejecucion) = Identificador::nuevo(id) else {
+        return solicitud_no_valida(&cabeceras, &estado);
+    };
+    ejecutar_orden(
+        estado,
+        cabeceras,
+        Orden::SanearPlantilla {
+            id_ejecucion,
+            id_destino: solicitud.id_destino,
+            confirmacion: solicitud.confirmacion,
+        },
+        StatusCode::OK,
+    )
+    .await
+}
+
+async fn iniciar_ciclo_plantilla(
+    State(estado): State<EstadoCompartido>,
+    Ruta(id): Ruta<String>,
+    cabeceras: HeaderMap,
+    cuerpo: std::result::Result<Json<SolicitudConfirmacion>, JsonRejection>,
+) -> Response {
+    let Ok(Json(solicitud)) = cuerpo else {
+        return solicitud_no_valida(&cabeceras, &estado);
+    };
+    mutacion_confirmada(
+        estado,
+        id,
+        cabeceras,
+        solicitud,
+        |id_ejecucion, confirmacion| Orden::IniciarCicloPlantilla {
+            id_ejecucion,
+            confirmacion,
+        },
+    )
+    .await
+}
+
+async fn detener_ciclo_plantilla(
+    State(estado): State<EstadoCompartido>,
+    Ruta(id): Ruta<String>,
+    cabeceras: HeaderMap,
+    cuerpo: std::result::Result<Json<SolicitudConfirmacion>, JsonRejection>,
+) -> Response {
+    let Ok(Json(solicitud)) = cuerpo else {
+        return solicitud_no_valida(&cabeceras, &estado);
+    };
+    mutacion_confirmada(
+        estado,
+        id,
+        cabeceras,
+        solicitud,
+        |id_ejecucion, confirmacion| Orden::DetenerCicloPlantilla {
+            id_ejecucion,
+            confirmacion,
+        },
+    )
+    .await
+}
+
+async fn validar_ciclo_plantilla(
+    State(estado): State<EstadoCompartido>,
+    Ruta(id): Ruta<String>,
+    cabeceras: HeaderMap,
+    cuerpo: std::result::Result<Json<SolicitudConfirmacion>, JsonRejection>,
+) -> Response {
+    let Ok(Json(solicitud)) = cuerpo else {
+        return solicitud_no_valida(&cabeceras, &estado);
+    };
+    mutacion_confirmada(
+        estado,
+        id,
+        cabeceras,
+        solicitud,
+        |id_ejecucion, confirmacion| Orden::ValidarCicloPlantilla {
+            id_ejecucion,
+            confirmacion,
+        },
+    )
+    .await
+}
+
+async fn promover_plantilla(
+    State(estado): State<EstadoCompartido>,
+    Ruta(id): Ruta<String>,
+    cabeceras: HeaderMap,
+    cuerpo: std::result::Result<Json<SolicitudConfirmacion>, JsonRejection>,
+) -> Response {
+    let Ok(Json(solicitud)) = cuerpo else {
+        return solicitud_no_valida(&cabeceras, &estado);
+    };
+    mutacion_confirmada(
+        estado,
+        id,
+        cabeceras,
+        solicitud,
+        |id_ejecucion, confirmacion| Orden::PromoverPlantilla {
+            id_ejecucion,
+            confirmacion,
+        },
     )
     .await
 }
@@ -593,7 +789,7 @@ mod pruebas {
         serde_json::to_writer(
             File::create(&ruta_configuracion).unwrap(),
             &serde_json::json!({
-                "version": 1,
+                "version": 2,
                 "uri_libvirt": "qemu:///system",
                 "raiz_recibos": raiz_recibos,
                 "raiz_resultados": raiz_resultados,

@@ -4,6 +4,9 @@
 
 //! Modelo puro del laboratorio, sin libvirt, procesos, red ni sistema de ficheros.
 
+pub mod acceso;
+pub mod arranque;
 pub mod identificador;
 pub mod plantilla;
+pub mod preparacion_plantilla;
 pub mod reserva;

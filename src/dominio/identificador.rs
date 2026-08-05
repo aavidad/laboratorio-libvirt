@@ -6,7 +6,8 @@ use serde::{de::Error as ErrorDeserializacion, Deserialize, Deserializer, Serial
 use std::fmt::{Display, Formatter};
 use thiserror::Error;
 
-const LONGITUD_MAXIMA: usize = 80;
+const LONGITUD_MINIMA: usize = 3;
+const LONGITUD_MAXIMA: usize = 64;
 
 /// Identificador opaco admitido en las fronteras públicas. No puede representar
 /// una ruta, una opción de línea de órdenes ni una expresión del intérprete.
@@ -17,20 +18,16 @@ pub struct Identificador(String);
 impl Identificador {
     pub fn nuevo(valor: impl Into<String>) -> Result<Self, ErrorIdentificador> {
         let valor = valor.into();
-        if valor.is_empty() || valor.len() > LONGITUD_MAXIMA {
+        if !(LONGITUD_MINIMA..=LONGITUD_MAXIMA).contains(&valor.len()) {
             return Err(ErrorIdentificador::FormatoNoValido);
         }
         if !valor
             .as_bytes()
             .first()
-            .is_some_and(u8::is_ascii_alphanumeric)
-            || !valor
-                .as_bytes()
-                .last()
-                .is_some_and(u8::is_ascii_alphanumeric)
+            .is_some_and(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
             || !valor
                 .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
         {
             return Err(ErrorIdentificador::FormatoNoValido);
         }
@@ -70,7 +67,17 @@ mod pruebas {
 
     #[test]
     fn rechaza_rutas_opciones_y_texto_ambiguo() {
-        for valor in ["", "../reserva", "--ayuda", "con espacio", "á", "final-"] {
+        for valor in [
+            "",
+            "ab",
+            "../reserva",
+            "--ayuda",
+            "con espacio",
+            "á",
+            "Mayuscula",
+            "con_guion_bajo",
+            &"a".repeat(65),
+        ] {
             assert_eq!(
                 Identificador::nuevo(valor).unwrap_err(),
                 ErrorIdentificador::FormatoNoValido
@@ -80,8 +87,10 @@ mod pruebas {
 
     #[test]
     fn conserva_un_identificador_seguro() {
-        let identificador = Identificador::nuevo("prueba_2026-08-02").unwrap();
-        assert_eq!(identificador.como_str(), "prueba_2026-08-02");
+        let identificador = Identificador::nuevo("prueba-2026-08-02-").unwrap();
+        assert_eq!(identificador.como_str(), "prueba-2026-08-02-");
+        assert!(Identificador::nuevo("a".repeat(64)).is_ok());
+        assert!(Identificador::nuevo("PRUEBA").is_err());
     }
 
     #[test]

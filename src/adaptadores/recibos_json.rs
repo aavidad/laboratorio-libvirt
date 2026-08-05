@@ -2,7 +2,9 @@
 // Copyright (C) 2026 Alberto Avidad
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use crate::aplicacion::puertos::{AlmacenRecibosReserva, GuardiaPreparacion, Reloj};
+use crate::aplicacion::puertos::{
+    AlmacenRecibosReserva, GuardiaMutacion, GuardiaPreparacion, Reloj,
+};
 use crate::dominio::identificador::Identificador;
 use crate::dominio::reserva::ReciboReserva;
 use anyhow::{bail, Context, Result};
@@ -47,6 +49,25 @@ impl AlmacenRecibosJson {
         if metadatos.file_type().is_symlink() || !metadatos.is_file() {
             bail!("el bloqueo de la reserva no es un fichero ordinario");
         }
+        let archivo = OpenOptions::new().read(true).write(true).open(ruta)?;
+        archivo.lock_exclusive()?;
+        Ok(archivo)
+    }
+
+    fn abrir_bloqueo_operacion(&self, id_ejecucion: &Identificador) -> Result<File> {
+        let ruta = self.directorio(id_ejecucion).join(".operacion");
+        if !ruta.try_exists()? {
+            let mut opciones = OpenOptions::new();
+            opciones.write(true).create_new(true);
+            #[cfg(unix)]
+            opciones.mode(0o600);
+            if let Err(error) = opciones.open(&ruta) {
+                if !ruta.try_exists()? {
+                    return Err(error).context("no se pudo crear el bloqueo de operación");
+                }
+            }
+        }
+        validar_fichero_privado(&ruta)?;
         let archivo = OpenOptions::new().read(true).write(true).open(ruta)?;
         archivo.lock_exclusive()?;
         Ok(archivo)
@@ -120,6 +141,13 @@ impl AlmacenRecibosReserva for AlmacenRecibosJson {
         Ok(Box::new(archivo))
     }
 
+    fn bloquear_mutacion(
+        &self,
+        id_ejecucion: &Identificador,
+    ) -> Result<Box<dyn GuardiaMutacion + '_>> {
+        Ok(Box::new(self.abrir_bloqueo_operacion(id_ejecucion)?))
+    }
+
     fn existe(&self, id_ejecucion: &Identificador) -> Result<bool> {
         Ok(self.directorio(id_ejecucion).try_exists()?)
     }
@@ -143,6 +171,17 @@ impl AlmacenRecibosReserva for AlmacenRecibosJson {
         opciones
             .open(&ruta_bloqueo)
             .with_context(|| format!("no se pudo crear el bloqueo {}", ruta_bloqueo.display()))?;
+        let ruta_operacion = directorio.join(".operacion");
+        let mut opciones_operacion = OpenOptions::new();
+        opciones_operacion.write(true).create_new(true);
+        #[cfg(unix)]
+        opciones_operacion.mode(0o600);
+        opciones_operacion.open(&ruta_operacion).with_context(|| {
+            format!(
+                "no se pudo crear el bloqueo de operación {}",
+                ruta_operacion.display()
+            )
+        })?;
         let _bloqueo = self.abrir_bloqueo(&recibo.id_ejecucion)?;
         self.escribir_atomico(recibo)
     }
@@ -193,6 +232,7 @@ impl AlmacenRecibosReserva for AlmacenRecibosJson {
 }
 
 impl GuardiaPreparacion for File {}
+impl GuardiaMutacion for File {}
 
 pub struct RelojSistema;
 
@@ -229,16 +269,16 @@ fn validar_directorio_privado(ruta: &Path) -> Result<()> {
 fn validar_fichero_privado(ruta: &Path) -> Result<()> {
     let metadatos = fs::symlink_metadata(ruta)?;
     if metadatos.file_type().is_symlink() || !metadatos.is_file() {
-        bail!("el bloqueo global no es un fichero ordinario");
+        bail!("el fichero de control no es ordinario");
     }
     #[cfg(unix)]
     {
         if metadatos.mode() & 0o077 != 0 {
-            bail!("el bloqueo global permite acceso a grupo u otros usuarios");
+            bail!("el fichero de control permite acceso a grupo u otros usuarios");
         }
         // SAFETY: geteuid no recibe punteros ni tiene precondiciones.
         if metadatos.uid() != unsafe { libc::geteuid() } {
-            bail!("el bloqueo global no pertenece al usuario actual");
+            bail!("el fichero de control no pertenece al usuario actual");
         }
     }
     Ok(())

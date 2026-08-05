@@ -97,6 +97,10 @@ fn analizar_orden(nombre: &str, argumentos: &[OsString]) -> Result<Orden> {
             exigir_cantidad(argumentos, 0, nombre)?;
             Ok(Orden::ListarReservas)
         }
+        "destinos-promocion" => {
+            exigir_cantidad(argumentos, 0, nombre)?;
+            Ok(Orden::ListarDestinosPromocion)
+        }
         "inspeccionar" => {
             exigir_cantidad(argumentos, 1, nombre)?;
             Ok(Orden::Inspeccionar {
@@ -112,6 +116,18 @@ fn analizar_orden(nombre: &str, argumentos: &[OsString]) -> Result<Orden> {
         "acceso" => {
             exigir_cantidad(argumentos, 1, nombre)?;
             Ok(Orden::Acceso {
+                id_ejecucion: identificador(&argumentos[0], "id de ejecución")?,
+            })
+        }
+        "diagnosticar-acceso" => {
+            exigir_cantidad(argumentos, 1, nombre)?;
+            Ok(Orden::DiagnosticarAcceso {
+                id_ejecucion: identificador(&argumentos[0], "id de ejecución")?,
+            })
+        }
+        "diagnosticar-arranque" => {
+            exigir_cantidad(argumentos, 1, nombre)?;
+            Ok(Orden::DiagnosticarArranque {
                 id_ejecucion: identificador(&argumentos[0], "id de ejecución")?,
             })
         }
@@ -170,6 +186,43 @@ fn analizar_orden(nombre: &str, argumentos: &[OsString]) -> Result<Orden> {
                 id_ejecucion: identificador(&argumentos[0], "id de ejecución")?,
                 confirmacion: identificador(&argumentos[3], "confirmación")?,
                 acepta_perdida_resultados: true,
+            })
+        }
+        "sanear-plantilla" => {
+            exigir_cantidad(argumentos, 4, nombre)?;
+            exigir_bandera(&argumentos[2], "--confirmar")?;
+            Ok(Orden::SanearPlantilla {
+                id_ejecucion: identificador(&argumentos[0], "id de ejecución")?,
+                id_destino: identificador(&argumentos[1], "id de destino")?,
+                confirmacion: identificador(&argumentos[3], "confirmación")?,
+            })
+        }
+        "iniciar-ciclo-plantilla"
+        | "detener-ciclo-plantilla"
+        | "validar-ciclo-plantilla"
+        | "promover-plantilla" => {
+            exigir_cantidad(argumentos, 3, nombre)?;
+            exigir_bandera(&argumentos[1], "--confirmar")?;
+            let id_ejecucion = identificador(&argumentos[0], "id de ejecución")?;
+            let confirmacion = identificador(&argumentos[2], "confirmación")?;
+            Ok(match nombre {
+                "iniciar-ciclo-plantilla" => Orden::IniciarCicloPlantilla {
+                    id_ejecucion,
+                    confirmacion,
+                },
+                "detener-ciclo-plantilla" => Orden::DetenerCicloPlantilla {
+                    id_ejecucion,
+                    confirmacion,
+                },
+                "validar-ciclo-plantilla" => Orden::ValidarCicloPlantilla {
+                    id_ejecucion,
+                    confirmacion,
+                },
+                "promover-plantilla" => Orden::PromoverPlantilla {
+                    id_ejecucion,
+                    confirmacion,
+                },
+                _ => unreachable!(),
             })
         }
         _ => bail!("orden no reconocida; use --ayuda"),
@@ -259,5 +312,45 @@ mod pruebas {
             panic!("orden inesperada");
         };
         assert_ne!(id_ejecucion, confirmacion);
+    }
+
+    #[test]
+    fn diagnostico_de_acceso_solo_acepta_un_identificador() {
+        let argumentos = [
+            "--configuracion",
+            "/tmp/config.json",
+            "diagnosticar-acceso",
+            "ejecucion-1",
+        ]
+        .into_iter()
+        .map(OsString::from)
+        .collect();
+        assert!(matches!(
+            analizar(argumentos).unwrap(),
+            AccionCli::Ejecutar {
+                orden: Orden::DiagnosticarAcceso { .. },
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn diagnostico_de_arranque_solo_acepta_un_identificador() {
+        let argumentos = [
+            "--configuracion",
+            "/tmp/config.json",
+            "diagnosticar-arranque",
+            "ejecucion-1",
+        ]
+        .into_iter()
+        .map(OsString::from)
+        .collect();
+        assert!(matches!(
+            analizar(argumentos).unwrap(),
+            AccionCli::Ejecutar {
+                orden: Orden::DiagnosticarArranque { .. },
+                ..
+            }
+        ));
     }
 }

@@ -2,9 +2,10 @@
 // Copyright (C) 2026 Alberto Avidad
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use crate::aplicacion::puertos::CatalogoPlantillas;
+use crate::aplicacion::puertos::{CatalogoDestinosPromocion, CatalogoPlantillas};
 use crate::dominio::identificador::Identificador;
 use crate::dominio::plantilla::{CanalAcceso, Plantilla, PoliticaRed, SistemaInvitado};
+use crate::dominio::preparacion_plantilla::DestinoPromocion;
 use crate::dominio::reserva::CuotasResultados;
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
@@ -33,6 +34,8 @@ pub struct ConfiguracionLocal {
     pub maximo_reservas_activas: usize,
     plantillas: BTreeMap<Identificador, Plantilla>,
     definiciones_libvirt: BTreeMap<Identificador, DefinicionPlantillaLibvirt>,
+    destinos_promocion: BTreeMap<Identificador, DestinoPromocion>,
+    definiciones_promocion: BTreeMap<Identificador, DefinicionPromocionLibvirt>,
 }
 
 #[derive(Debug, Clone)]
@@ -52,6 +55,35 @@ pub struct DefinicionPlantillaLibvirt {
     pub volumen_plantilla: String,
     pub pool_instancias: String,
     pub red: Option<String>,
+    pub perfil_identidad_acceso: Option<PerfilIdentidadAcceso>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PerfilIdentidadAcceso {
+    WindowsOpenssh,
+    LinuxOpenssh,
+}
+
+#[derive(Debug, Clone)]
+pub struct MedioTemporalLibvirt {
+    pub destino: String,
+    pub pool: String,
+    pub volumen: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct DefinicionPromocionLibvirt {
+    pub id_origen: Identificador,
+    pub dominio_destino: String,
+    pub uuid_destino: String,
+    pub destino_disco: String,
+    pub pool_destino: String,
+    pub volumen_destino: String,
+    pub red_preparacion: Option<String>,
+    pub red_final: Option<String>,
+    pub medios_temporales: Vec<MedioTemporalLibvirt>,
+    pub perfil_identidad_acceso: Option<PerfilIdentidadAcceso>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -72,6 +104,8 @@ struct DocumentoConfiguracion {
     #[serde(default)]
     api: Option<ApiConfigurada>,
     plantillas: Vec<PlantillaConfigurada>,
+    #[serde(default)]
+    promociones: Vec<PromocionConfigurada>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -99,6 +133,42 @@ struct PlantillaConfigurada {
     pool_instancias: String,
     #[serde(default)]
     red: Option<String>,
+    #[serde(default)]
+    perfil_identidad_acceso: Option<PerfilIdentidadAcceso>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MedioTemporalConfigurado {
+    destino: String,
+    pool: String,
+    volumen: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PromocionConfigurada {
+    id: String,
+    id_origen: String,
+    sistema: SistemaInvitado,
+    politica_red: PoliticaRed,
+    #[serde(default)]
+    capacidades: Vec<String>,
+    #[serde(default)]
+    canal_acceso: Option<CanalAcceso>,
+    dominio_destino: String,
+    uuid_destino: String,
+    destino_disco: String,
+    pool_destino: String,
+    volumen_destino: String,
+    #[serde(default)]
+    red_preparacion: Option<String>,
+    #[serde(default)]
+    red_final: Option<String>,
+    #[serde(default)]
+    medios_temporales: Vec<MedioTemporalConfigurado>,
+    #[serde(default)]
+    perfil_identidad_acceso: Option<PerfilIdentidadAcceso>,
 }
 
 impl ConfiguracionLocal {
@@ -125,7 +195,7 @@ impl ConfiguracionLocal {
         File::open(ruta)?.read_to_end(&mut contenido)?;
         let documento: DocumentoConfiguracion =
             serde_json::from_slice(&contenido).context("la configuración no es JSON válido")?;
-        if documento.version != 1 {
+        if documento.version != 2 {
             bail!("versión de configuración no compatible");
         }
         if documento.uri_libvirt != "qemu:///system" {
@@ -173,6 +243,32 @@ impl ConfiguracionLocal {
                     bail!("un canal de acceso necesita una red y un puerto válidos");
                 }
             }
+            match (
+                configurada
+                    .canal_acceso
+                    .as_ref()
+                    .map(|canal| canal.protocolo),
+                configurada.perfil_identidad_acceso,
+            ) {
+                (
+                    Some(crate::dominio::plantilla::ProtocoloAcceso::Ssh),
+                    Some(PerfilIdentidadAcceso::WindowsOpenssh),
+                ) if configurada.sistema == SistemaInvitado::Windows => {}
+                (
+                    Some(crate::dominio::plantilla::ProtocoloAcceso::Ssh),
+                    Some(PerfilIdentidadAcceso::LinuxOpenssh),
+                ) if configurada.sistema == SistemaInvitado::Linux => {}
+                (Some(crate::dominio::plantilla::ProtocoloAcceso::Ssh), Some(_)) => {
+                    bail!("el perfil de identidad no corresponde al sistema de la plantilla")
+                }
+                (Some(crate::dominio::plantilla::ProtocoloAcceso::Ssh), None) => {
+                    bail!("un canal SSH exige un perfil de identidad fuera de banda")
+                }
+                (Some(_), Some(_)) | (None, Some(_)) => {
+                    bail!("el perfil de identidad configurado solo es válido para SSH")
+                }
+                _ => {}
+            }
             let capacidades = configurada
                 .capacidades
                 .into_iter()
@@ -193,6 +289,7 @@ impl ConfiguracionLocal {
                 volumen_plantilla: configurada.volumen_plantilla,
                 pool_instancias: configurada.pool_instancias,
                 red: configurada.red,
+                perfil_identidad_acceso: configurada.perfil_identidad_acceso,
             };
             if plantillas.insert(id.clone(), plantilla).is_some()
                 || definiciones_libvirt.insert(id, definicion).is_some()
@@ -202,6 +299,150 @@ impl ConfiguracionLocal {
         }
         if plantillas.is_empty() {
             bail!("la configuración no contiene plantillas registradas");
+        }
+        let mut destinos_promocion = BTreeMap::new();
+        let mut definiciones_promocion = BTreeMap::new();
+        let mut dominios_destino = BTreeSet::new();
+        let mut uuid_destino = BTreeSet::new();
+        let mut volumenes_destino = BTreeSet::new();
+        for configurada in documento.promociones {
+            let id = Identificador::nuevo(configurada.id)?;
+            let id_origen = Identificador::nuevo(configurada.id_origen)?;
+            let origen = plantillas
+                .get(&id_origen)
+                .context("el origen de promoción no está registrado")?;
+            if plantillas.contains_key(&id) {
+                bail!("un destino de promoción no puede sobrescribir una plantilla existente");
+            }
+            if origen.sistema != configurada.sistema {
+                bail!("el destino de promoción debe conservar la familia del sistema");
+            }
+            validar_nombre_libvirt(&configurada.dominio_destino, "dominio de promoción")?;
+            validar_uuid(&configurada.uuid_destino)?;
+            validar_nombre_libvirt(&configurada.destino_disco, "destino de disco")?;
+            validar_nombre_libvirt(&configurada.pool_destino, "pool de promoción")?;
+            validar_nombre_libvirt(&configurada.volumen_destino, "volumen de promoción")?;
+            if configurada.dominio_destino.starts_with("lab-")
+                || configurada.volumen_destino.starts_with("lab-")
+            {
+                bail!("un destino de promoción invade el espacio de nombres de reservas");
+            }
+            if definiciones_libvirt.values().any(|existente| {
+                existente.dominio == configurada.dominio_destino
+                    || existente
+                        .uuid_esperado
+                        .eq_ignore_ascii_case(&configurada.uuid_destino)
+                    || (existente.pool_plantilla == configurada.pool_destino
+                        && existente.volumen_plantilla == configurada.volumen_destino)
+            }) {
+                bail!("un destino de promoción sobrescribiría una plantilla registrada");
+            }
+            if !dominios_destino.insert(configurada.dominio_destino.clone())
+                || !uuid_destino.insert(configurada.uuid_destino.to_ascii_lowercase())
+                || !volumenes_destino.insert((
+                    configurada.pool_destino.clone(),
+                    configurada.volumen_destino.clone(),
+                ))
+            {
+                bail!("dos destinos de promoción comparten un recurso privado");
+            }
+            if let Some(red) = &configurada.red_preparacion {
+                validar_nombre_libvirt(red, "red temporal de preparación")?;
+            }
+            match (configurada.politica_red, configurada.red_final.as_deref()) {
+                (PoliticaRed::SinRed, None) => {}
+                (PoliticaRed::Aislada, Some(red)) => validar_nombre_libvirt(red, "red final")?,
+                _ => bail!("la red final no coincide con la política del destino"),
+            }
+            if let Some(canal) = &configurada.canal_acceso {
+                if configurada.politica_red == PoliticaRed::SinRed || canal.puerto == 0 {
+                    bail!("un destino sin red no puede declarar canal de acceso");
+                }
+            }
+            match (
+                configurada
+                    .canal_acceso
+                    .as_ref()
+                    .map(|canal| canal.protocolo),
+                configurada.perfil_identidad_acceso,
+            ) {
+                (
+                    Some(crate::dominio::plantilla::ProtocoloAcceso::Ssh),
+                    Some(PerfilIdentidadAcceso::WindowsOpenssh),
+                ) if configurada.sistema == SistemaInvitado::Windows => {}
+                (
+                    Some(crate::dominio::plantilla::ProtocoloAcceso::Ssh),
+                    Some(PerfilIdentidadAcceso::LinuxOpenssh),
+                ) if configurada.sistema == SistemaInvitado::Linux => {}
+                (Some(crate::dominio::plantilla::ProtocoloAcceso::Ssh), Some(_)) => {
+                    bail!("el perfil de identidad no corresponde al sistema del destino")
+                }
+                (Some(crate::dominio::plantilla::ProtocoloAcceso::Ssh), None) => {
+                    bail!("un destino SSH exige un perfil de identidad fuera de banda")
+                }
+                (Some(_), Some(_)) | (None, Some(_)) => {
+                    bail!("el perfil de identidad del destino solo es válido para SSH")
+                }
+                _ => {}
+            }
+            let capacidades = configurada
+                .capacidades
+                .into_iter()
+                .map(Identificador::nuevo)
+                .collect::<Result<BTreeSet<_>, _>>()?;
+            let destino_disco_sistema = configurada.destino_disco.clone();
+            let mut destinos_medios = BTreeSet::new();
+            let mut recursos_medios = BTreeSet::new();
+            let medios_temporales = configurada
+                .medios_temporales
+                .into_iter()
+                .map(|medio| {
+                    validar_nombre_libvirt(&medio.destino, "destino de medio temporal")?;
+                    validar_nombre_libvirt(&medio.pool, "pool de medio temporal")?;
+                    validar_nombre_libvirt(&medio.volumen, "volumen de medio temporal")?;
+                    if medio.destino == destino_disco_sistema {
+                        bail!("un medio temporal no puede ocupar el destino del disco sistema");
+                    }
+                    if !destinos_medios.insert(medio.destino.clone()) {
+                        bail!("destino de medio temporal repetido");
+                    }
+                    if !recursos_medios.insert((medio.pool.clone(), medio.volumen.clone())) {
+                        bail!("recurso de medio temporal repetido");
+                    }
+                    Ok(MedioTemporalLibvirt {
+                        destino: medio.destino,
+                        pool: medio.pool,
+                        volumen: medio.volumen,
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?;
+            let destino = DestinoPromocion {
+                plantilla: Plantilla {
+                    id: id.clone(),
+                    sistema: configurada.sistema,
+                    politica_red: configurada.politica_red,
+                    canal_acceso: configurada.canal_acceso,
+                    capacidades,
+                },
+                id_origen: id_origen.clone(),
+            };
+            let definicion = DefinicionPromocionLibvirt {
+                id_origen,
+                dominio_destino: configurada.dominio_destino,
+                uuid_destino: configurada.uuid_destino.to_ascii_lowercase(),
+                destino_disco: configurada.destino_disco,
+                pool_destino: configurada.pool_destino,
+                volumen_destino: configurada.volumen_destino,
+                red_preparacion: configurada.red_preparacion,
+                red_final: configurada.red_final,
+                medios_temporales,
+                perfil_identidad_acceso: configurada.perfil_identidad_acceso,
+            };
+            if destinos_promocion.insert(id.clone(), destino).is_some()
+                || definiciones_promocion.insert(id, definicion).is_some()
+            {
+                bail!("identificador de destino de promoción repetido");
+            }
         }
         Ok(Self {
             uri_libvirt: documento.uri_libvirt,
@@ -214,11 +455,30 @@ impl ConfiguracionLocal {
             maximo_reservas_activas: documento.maximo_reservas_activas,
             plantillas,
             definiciones_libvirt,
+            destinos_promocion,
+            definiciones_promocion,
         })
     }
 
     pub fn definiciones_libvirt(&self) -> BTreeMap<Identificador, DefinicionPlantillaLibvirt> {
         self.definiciones_libvirt.clone()
+    }
+
+    pub fn definiciones_promocion(&self) -> BTreeMap<Identificador, DefinicionPromocionLibvirt> {
+        self.definiciones_promocion.clone()
+    }
+}
+
+impl CatalogoDestinosPromocion for ConfiguracionLocal {
+    fn obtener_destino(&self, id: &Identificador) -> Result<DestinoPromocion> {
+        self.destinos_promocion
+            .get(id)
+            .cloned()
+            .context("destino de promoción no registrado en la configuración local")
+    }
+
+    fn listar_destinos(&self) -> Result<Vec<DestinoPromocion>> {
+        Ok(self.destinos_promocion.values().cloned().collect())
     }
 }
 
@@ -304,7 +564,7 @@ fn validar_uuid(valor: &str) -> Result<()> {
             if matches!(indice, 8 | 13 | 18 | 23) {
                 byte == b'-'
             } else {
-                byte.is_ascii_hexdigit()
+                byte.is_ascii_digit() || matches!(byte, b'a'..=b'f')
             }
         })
     {
@@ -324,7 +584,7 @@ mod pruebas {
         let temporal = tempfile::tempdir().unwrap();
         let ruta = temporal.path().join("config.local.json");
         let documento = serde_json::json!({
-            "version": 1,
+            "version": 2,
             "uri_libvirt": "qemu:///system",
             "raiz_recibos": "/var/lib/laboratorio-libvirt/recibos",
             "raiz_resultados": "/var/lib/laboratorio-libvirt/resultados",
@@ -378,11 +638,89 @@ mod pruebas {
     }
 
     #[test]
+    fn exige_identidad_fuera_de_banda_para_ssh() {
+        let (_temporal, ruta) = escribir_configuracion(serde_json::json!("lab-aislada"));
+        let mut documento: serde_json::Value =
+            serde_json::from_reader(File::open(&ruta).unwrap()).unwrap();
+        documento["plantillas"][0]["canal_acceso"] = serde_json::json!({
+            "protocolo": "ssh",
+            "puerto": 22
+        });
+        serde_json::to_writer(&mut File::create(&ruta).unwrap(), &documento).unwrap();
+        #[cfg(unix)]
+        fs::set_permissions(&ruta, fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(ConfiguracionLocal::cargar(&ruta).is_err());
+    }
+
+    #[test]
+    fn rechaza_un_perfil_ssh_de_otro_sistema_en_una_plantilla() {
+        let (_temporal, ruta) = escribir_configuracion(serde_json::json!("lab-aislada"));
+        let mut documento: serde_json::Value =
+            serde_json::from_reader(File::open(&ruta).unwrap()).unwrap();
+        documento["plantillas"][0]["canal_acceso"] = serde_json::json!({
+            "protocolo": "ssh",
+            "puerto": 22
+        });
+        documento["plantillas"][0]["perfil_identidad_acceso"] = serde_json::json!("linux_openssh");
+        serde_json::to_writer(&mut File::create(&ruta).unwrap(), &documento).unwrap();
+        #[cfg(unix)]
+        fs::set_permissions(&ruta, fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(ConfiguracionLocal::cargar(&ruta).is_err());
+    }
+
+    #[test]
+    fn rechaza_un_perfil_ssh_de_otro_sistema_en_un_destino() {
+        let temporal = tempfile::tempdir().unwrap();
+        let ruta = temporal.path().join("config.local.json");
+        let mut documento: serde_json::Value =
+            serde_json::from_str(include_str!("../../config.example.json")).unwrap();
+        documento["promociones"][0]["perfil_identidad_acceso"] = serde_json::json!("linux_openssh");
+        serde_json::to_writer(&mut File::create(&ruta).unwrap(), &documento).unwrap();
+        #[cfg(unix)]
+        fs::set_permissions(&ruta, fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(ConfiguracionLocal::cargar(&ruta).is_err());
+    }
+
+    #[test]
+    fn rechaza_medios_temporales_duplicados_o_sobre_el_disco_sistema() {
+        for medio_adicional in [
+            serde_json::json!({
+                "destino": "sdb",
+                "pool": "otro-pool",
+                "volumen": "otro.iso"
+            }),
+            serde_json::json!({
+                "destino": "sdc",
+                "pool": "medios-preparacion",
+                "volumen": "bootstrap-controlado.iso"
+            }),
+            serde_json::json!({
+                "destino": "sda",
+                "pool": "otro-pool",
+                "volumen": "otro.iso"
+            }),
+        ] {
+            let temporal = tempfile::tempdir().unwrap();
+            let ruta = temporal.path().join("config.local.json");
+            let mut documento: serde_json::Value =
+                serde_json::from_str(include_str!("../../config.example.json")).unwrap();
+            documento["promociones"][0]["medios_temporales"]
+                .as_array_mut()
+                .unwrap()
+                .push(medio_adicional);
+            serde_json::to_writer(&mut File::create(&ruta).unwrap(), &documento).unwrap();
+            #[cfg(unix)]
+            fs::set_permissions(&ruta, fs::Permissions::from_mode(0o600)).unwrap();
+            assert!(ConfiguracionLocal::cargar(&ruta).is_err());
+        }
+    }
+
+    #[test]
     fn rechaza_una_api_expuesta_directamente() {
         let temporal = tempfile::tempdir().unwrap();
         let ruta = temporal.path().join("config.local.json");
         let documento = serde_json::json!({
-            "version": 1,
+            "version": 2,
             "uri_libvirt": "qemu:///system",
             "raiz_recibos": "/var/lib/laboratorio-libvirt/recibos",
             "raiz_resultados": "/var/lib/laboratorio-libvirt/resultados",
@@ -398,5 +736,74 @@ mod pruebas {
         #[cfg(unix)]
         fs::set_permissions(&ruta, fs::Permissions::from_mode(0o600)).unwrap();
         assert!(ConfiguracionLocal::cargar(&ruta).is_err());
+    }
+
+    #[test]
+    fn exige_uuid_canonico_en_minusculas() {
+        assert!(validar_uuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa").is_ok());
+        assert!(validar_uuid("AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA").is_err());
+    }
+
+    #[test]
+    fn rechaza_promover_sobre_una_plantilla_existente() {
+        let temporal = tempfile::tempdir().unwrap();
+        let ruta = temporal.path().join("config.local.json");
+        let documento = serde_json::json!({
+            "version": 2,
+            "uri_libvirt": "qemu:///system",
+            "raiz_recibos": "/var/lib/laboratorio-libvirt/recibos",
+            "raiz_resultados": "/var/lib/laboratorio-libvirt/resultados",
+            "plantillas": [{
+                "id": "linux-base", "sistema": "linux", "politica_red": "sin_red",
+                "dominio": "linux-base", "uuid_esperado": "11111111-1111-1111-1111-111111111111",
+                "destino_disco": "vda", "pool_plantilla": "plantillas",
+                "volumen_plantilla": "linux-base.qcow2", "pool_instancias": "instancias"
+            }],
+            "promociones": [{
+                "id": "linux-base", "id_origen": "linux-base", "sistema": "linux",
+                "politica_red": "sin_red", "dominio_destino": "linux-nueva",
+                "uuid_destino": "22222222-2222-2222-2222-222222222222",
+                "destino_disco": "vda", "pool_destino": "plantillas",
+                "volumen_destino": "linux-nueva.qcow2"
+            }]
+        });
+        serde_json::to_writer(&mut File::create(&ruta).unwrap(), &documento).unwrap();
+        #[cfg(unix)]
+        fs::set_permissions(&ruta, fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(ConfiguracionLocal::cargar(&ruta).is_err());
+    }
+
+    #[test]
+    fn registra_un_destino_sin_exponer_sus_recursos() {
+        let temporal = tempfile::tempdir().unwrap();
+        let ruta = temporal.path().join("config.local.json");
+        let documento = serde_json::json!({
+            "version": 2,
+            "uri_libvirt": "qemu:///system",
+            "raiz_recibos": "/var/lib/laboratorio-libvirt/recibos",
+            "raiz_resultados": "/var/lib/laboratorio-libvirt/resultados",
+            "plantillas": [{
+                "id": "linux-base", "sistema": "linux", "politica_red": "sin_red",
+                "dominio": "linux-base", "uuid_esperado": "11111111-1111-1111-1111-111111111111",
+                "destino_disco": "vda", "pool_plantilla": "plantillas",
+                "volumen_plantilla": "linux-base.qcow2", "pool_instancias": "instancias"
+            }],
+            "promociones": [{
+                "id": "linux-siguiente", "id_origen": "linux-base", "sistema": "linux",
+                "politica_red": "sin_red", "dominio_destino": "linux-siguiente-base",
+                "uuid_destino": "22222222-2222-2222-2222-222222222222",
+                "destino_disco": "vda", "pool_destino": "plantillas",
+                "volumen_destino": "linux-siguiente.qcow2"
+            }]
+        });
+        serde_json::to_writer(&mut File::create(&ruta).unwrap(), &documento).unwrap();
+        #[cfg(unix)]
+        fs::set_permissions(&ruta, fs::Permissions::from_mode(0o600)).unwrap();
+        let configuracion = ConfiguracionLocal::cargar(&ruta).unwrap();
+        let destinos = configuracion.listar_destinos().unwrap();
+        assert_eq!(destinos.len(), 1);
+        let publico = serde_json::to_string(&destinos).unwrap();
+        assert!(!publico.contains("linux-siguiente-base"));
+        assert!(!publico.contains("qcow2"));
     }
 }
