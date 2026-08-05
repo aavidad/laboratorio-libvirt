@@ -8,9 +8,17 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 - Linux con QEMU y libvirt;
 - `/usr/bin/virsh` como fichero ordinario;
+- `/usr/bin/qemu-img` como fichero ordinario si se habilita promoción;
 - Rust estable para compilar;
 - una cuenta de servicio sin inicio de sesión y acceso al grupo de libvirt;
 - plantillas apagadas y pools administrados previamente.
+
+Para publicar accesos SSH, la plantilla debe incluir QEMU Guest Agent y crear
+una marca UUID y una clave pública Ed25519 en las rutas fijas del perfil
+configurado. El laboratorio lee ambos ficheros por el canal del hipervisor,
+valida el dominio y el UUID y deriva la huella; no consulta la clave por la red
+SSH. El procedimiento y las ACL requeridas se describen en
+[IDENTIDAD_SSH.md](IDENTIDAD_SSH.md).
 
 ## Binario
 
@@ -32,6 +40,9 @@ añadirla al grupo que autoriza la conexión local a libvirt y aplicar
 Las raíces deben quedar con modo `0700`. La configuración se instala como
 `/etc/laboratorio-libvirt/configuracion.json`, propiedad de la cuenta de
 servicio y modo `0600`.
+
+La versión 0.2 exige el formato de configuración 2. Una configuración 1 se
+rechaza para evitar mantener accesos SSH sin identidad fuera de banda.
 
 Genere el token mediante una fuente criptográfica del sistema y guárdelo en la
 ruta configurada con modo `0600`. No lo coloque en la unidad systemd, variables

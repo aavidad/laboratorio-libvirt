@@ -41,16 +41,45 @@ Flujo de una campaña:
 2. inspeccionarla y exigir todas las comprobaciones correctas;
 3. preparar e iniciar una reserva nueva;
 4. obtener el canal de acceso registrado;
-5. comprobar dentro del huésped el SHA-256 y la versión del analizador;
-6. iniciar la observación antes de ejecutar el instalador objetivo;
-7. ejecutar instalación, reinicios y aplicación mediante solicitudes tipadas;
-8. recorrer semánticamente menús y controles en la sesión gráfica;
-9. copiar los resultados al anfitrión y crear el manifiesto;
-10. detener, proteger resultados y descartar la reserva.
+5. fijar la clave de host devuelta en `identidad_servidor` y rechazar una
+   conexión cuya clave no coincida; no usar TOFU ni `ssh-keyscan`;
+6. comprobar dentro del huésped el SHA-256 y la versión del analizador;
+7. iniciar la observación antes de ejecutar el instalador objetivo;
+8. ejecutar instalación, reinicios y aplicación mediante solicitudes tipadas;
+9. recorrer semánticamente menús y controles en la sesión gráfica;
+10. copiar los resultados al anfitrión y crear el manifiesto;
+11. detener, proteger resultados y descartar la reserva.
 
 El conector Windows mantiene una sesión SSH persistente para coordinación y
 usa tareas `InteractiveToken` para la interfaz. No pasa contraseñas por la API
 del laboratorio ni permite PowerShell arbitrario.
+
+## Preparación y promoción de plantillas
+
+El inventario privado registra previamente cada destino, el origen admitido,
+los medios temporales exactos, la red de preparación, la red final, el dominio,
+el UUID y el volumen nuevos. El consumidor solo aporta identificadores opacos.
+
+Tras completar el aprovisionamiento dentro de una reserva y apagarla:
+
+1. ejecutar `sanear-plantilla`; el adaptador rechaza medios o redes ajenos al
+   inventario, destinos o recursos duplicados y medios sin `<readonly/>`, y
+   revierte la definición si la validación posterior falla;
+2. ejecutar `iniciar-ciclo-plantilla`, `detener-ciclo-plantilla` y
+   `validar-ciclo-plantilla` dos veces; cada validación queda en el recibo;
+3. ejecutar `promover-plantilla`; el adaptador aplana el disco en un volumen
+   nuevo, define y comprueba el dominio nuevo y solo entonces retira el clon;
+4. actualizar el catálogo privado en un cambio administrativo posterior. La
+   promoción no sobrescribe ni modifica la plantilla de origen.
+
+En un destino SSH, `detener-ciclo-plantilla` valida primero por QGA la marca
+UUID y la clave de host del dominio activo. Solo después persiste esa
+comprobación y solicita el apagado; una máquina apagada sin comprobación previa
+no puede completar el ciclo.
+
+Las operaciones se serializan por reserva. Si se pierde una respuesta, se
+consulta el recibo y se repite el mismo paso: saneamiento y promoción son
+idempotentes respecto de los recursos inventariados.
 
 ## Integración con un orquestador general
 
