@@ -563,7 +563,7 @@ mod pruebas {
         let ruta = temporal.path().join("token");
         File::create(&ruta)
             .unwrap()
-            .write_all(b"0123456789abcdef0123456789abcdef\n")
+            .write_all(b"test-token-not-a-secret-00000000\n")
             .unwrap();
         #[cfg(unix)]
         fs::set_permissions(&ruta, fs::Permissions::from_mode(0o600)).unwrap();
@@ -581,7 +581,7 @@ mod pruebas {
             fs::set_permissions(&raiz_recibos, fs::Permissions::from_mode(0o700)).unwrap();
             fs::set_permissions(&raiz_resultados, fs::Permissions::from_mode(0o700)).unwrap();
         }
-        let token = "0123456789abcdef0123456789abcdef";
+        let token = "test-token-not-a-secret-00000000";
         let ruta_token = temporal.path().join("privado/token");
         File::create(&ruta_token)
             .unwrap()
